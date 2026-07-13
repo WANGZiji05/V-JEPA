@@ -5,28 +5,47 @@
 # LICENSE file in the root directory of this source tree.
 #
 
+# ============================================================================
+# V-JEPA 评估入口（本地多GPU）
+# ============================================================================
+# 这个文件是 V-JEPA 评估的本地启动入口。
+# 与预训练入口(app/main.py)结构类似，但用于启动评估任务。
+#
+# 评估类型由配置文件中的 eval_name 字段决定：
+#   - 'image_classification_frozen' → 图像分类（冻结backbone）
+#   - 'video_classification_frozen' → 视频分类（冻结backbone）
+#
+# 使用方式：
+#   python -m evals.main --fname configs/evals/vith16_in1k.yaml --devices cuda:0 cuda:1 cuda:2
+
 import argparse
-
 import multiprocessing as mp
-
 import pprint
 import yaml
 
 from src.utils.distributed import init_distributed
-
 from evals.scaffold import main as eval_main
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
     '--fname', type=str,
-    help='name of config file to load',
+    help='评估配置文件路径（YAML格式）',
     default='configs.yaml')
 parser.add_argument(
     '--devices', type=str, nargs='+', default=['cuda:0'],
-    help='which devices to use on local machine')
+    help='本地使用的GPU设备列表')
 
 
 def process_main(rank, fname, world_size, devices):
+    """
+    每个GPU进程的主函数
+
+    流程：
+    1. 设置可见GPU
+    2. 加载YAML配置文件
+    3. 初始化分布式通信
+    4. 启动评估任务
+    """
     import os
     os.environ['CUDA_VISIBLE_DEVICES'] = str(devices[rank].split(':')[-1])
 
@@ -40,7 +59,7 @@ def process_main(rank, fname, world_size, devices):
 
     logger.info(f'called-params {fname}')
 
-    # Load config
+    # 加载配置文件
     params = None
     with open(fname, 'r') as y_file:
         params = yaml.load(y_file, Loader=yaml.FullLoader)
@@ -48,11 +67,12 @@ def process_main(rank, fname, world_size, devices):
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(params)
 
-    # Init distributed (access to comm between GPUS on same machine)
+    # 初始化分布式通信
     world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
     logger.info(f'Running... (rank: {rank}/{world_size})')
 
-    # Launch the eval with loaded config
+    # 启动评估
+    # eval_name 决定使用哪种评估任务（如 'image_classification_frozen'）
     eval_main(params['eval_name'], args_eval=params)
 
 

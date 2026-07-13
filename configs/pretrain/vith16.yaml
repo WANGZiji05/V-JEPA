@@ -1,90 +1,149 @@
-app: vjepa
-nodes: 16
-tasks_per_node: 8
+# ============================================================================
+# V-JEPA ViT-H/16 预训练配置文件
+# ============================================================================
+#
+# 本文件定义了 V-JEPA 模型预训练的完整配置。
+#
+# 【V-JEPA 预训练概述】
+#   V-JEPA (Video Joint Embedding Predictive Architecture) 是一个自监督视频学习模型。
+#   预训练阶段不使用任何标签，而是通过预测视频中被遮挡部分的特征来学习视觉表征。
+#
+#   V-JEPA 使用两个编码器：
+#   1. Context Encoder（上下文编码器）：输入被部分遮挡的视频帧，提取上下文特征
+#   2. Target Encoder（目标编码器）：输入完整视频帧，提取目标特征（EMA 更新）
+#   训练目标是让 Context Encoder 的输出预测 Target Encoder 在遮挡区域的特征。
+#
+# 【ViT-H/16 规格】
+#   - ViT-Huge: 约 1.44B 参数（H 级别）
+#   - Patch size: 16（将图像分割为 16x16 的 patch）
+#   - 16 个注意力头
+#   - 嵌入维度约 1280
+#
+# 【分布式训练设置】
+#   nodes: 使用的 GPU 节点数
+#   tasks_per_node: 每个节点的任务数（通常是 GPU 数）
+#   总 GPU 数 = nodes x tasks_per_node
+#   例如 16 节点 x 8 GPU = 128 GPU 进行大规模预训练
+#
+# 【数据】
+#   使用多个视频数据集的混合：
+#   - Kinetics-710: 大规模人类动作视频
+#   - Something-Something V2: 细粒度动作理解
+#   - HowTo100M: 教学视频（大规模弱标注数据）
+# ============================================================================
+
+# ---- 分布式训练设置 ----
+app: vjepa                    # 应用名称标识
+nodes: 16                     # GPU 节点数量（每个节点有多张 GPU）
+tasks_per_node: 8             # 每个节点的任务数（=每个节点的 GPU 数）
+
+# ---- 数据配置 ----
 data:
-  dataset_type: VideoDataset
-  datasets:
-    - /your_path_to_kinetics710_csv_file_index.csv
-    - /your_path_to_ssv2_csv_file_index.csv
-    - /your_path_to_howto100m_csv_file_index.csv
-  decode_one_clip: true
-  batch_size: 24
-  num_clips: 1
-  num_frames: 16
-  tubelet_size: 2
-  sampling_rate: 4
-  crop_size: 224
-  patch_size: 16
-  pin_mem: true
-  num_workers: 12
-  filter_short_videos: false
-  clip_duration: null
+  dataset_type: VideoDataset  # 数据集类型：视频数据集
+  datasets:                   # 预训练使用的数据集列表（CSV 格式索引文件）
+    - /your_path_to_kinetics710_csv_file_index.csv      # Kinetics-710 数据集的 CSV 索引
+    - /your_path_to_ssv2_csv_file_index.csv             # Something-Something V2 数据集的 CSV 索引
+    - /your_path_to_howto100m_csv_file_index.csv        # HowTo100M 数据集的 CSV 索引
+  decode_one_clip: true       # 每次只解码一个 clip（节省内存）
+  batch_size: 24              # 每个 GPU 的批次大小（总 batch = 24 x 128 GPU = 3072）
+  num_clips: 1                # 每个视频采样的片段数（预训练时随机采 1 个）
+  num_frames: 16              # 每个 clip 的帧数（16 帧，约 0.5-1 秒）
+  tubelet_size: 2             # 时间 tubelet 大小（2 帧为一个时间 token）
+  sampling_rate: 4            # 帧采样步长（每隔 4 帧取 1 帧，16 帧覆盖约 64 帧原始视频）
+  crop_size: 224              # 空间裁剪尺寸（224x224 像素）
+  patch_size: 16              # patch 大小（16x16 像素 → 14x14=196 个空间 patch）
+  pin_mem: true               # 启用固定内存（加速 CPU→GPU 数据传输）
+  num_workers: 12             # 数据加载的并行 worker 数（每个 GPU）
+  filter_short_videos: false  # 不过滤短视频（设为 false 保留所有视频）
+  clip_duration: null         # 不按时间长度限制 clip（null=用帧数控制）
+
+# ---- 数据增强配置 ----
+# 预训练时的数据增强策略
 data_aug:
-  auto_augment: false
-  motion_shift: false
-  random_resize_aspect_ratio:
+  auto_augment: false         # 不使用自动增强（预训练保持数据原始性）
+  motion_shift: false         # 不使用运动偏移增强
+  random_resize_aspect_ratio: # 随机缩放的宽高比范围（0.75~1.35）
   - 0.75
   - 1.35
-  random_resize_scale:
+  random_resize_scale:        # 随机缩放的尺度范围（0.3~1.0，即 30%~100%）
   - 0.3
   - 1.0
-  reprob: 0.0
+  reprob: 0.0                 # 随机擦除概率为 0（不使用）
+
+# ---- 日志和检查点 ----
 logging:
-  folder: /your_absolute_file_path_for_saving_logs_and_checkpoints/
-  write_tag: jepa
+  folder: /your_absolute_file_path_for_saving_logs_and_checkpoints/  # 日志和模型保存的绝对路径
+  write_tag: jepa             # 日志文件名标签
+
+# ---- 损失函数配置 ----
 loss:
-  loss_exp: 1.0
-  reg_coeff: 0.0
+  loss_exp: 1.0               # 损失的指数项（1.0=标准的 L2 损失）
+  reg_coeff: 0.0              # 正则化系数（0=不使用额外正则化）
+
+# ---- 掩码配置 ----
+# 定义如何遮挡视频。V-JEPA 使用多尺度掩码策略：
+#   第一组：大块掩码（8 个 block），覆盖小面积（15%），造成局部遮挡
+#   第二组：小块掩码（2 个 block），覆盖大面积（70%），造成全局遮挡
+# 两种掩码同时使用，模型学会从不同尺度的上下文中预测缺失信息
 mask:
-  - aspect_ratio:
+  # 第一组掩码：大块但稀疏的遮挡
+  - aspect_ratio:             # 掩码块的宽高比范围
       - 0.75
       - 1.5
-    num_blocks: 8
-    spatial_scale:
+    num_blocks: 8             # 掩码块的数量（8 个小块）
+    spatial_scale:            # 空间尺度范围（15% 的空间区域）
       - 0.15
       - 0.15
-    temporal_scale:
+    temporal_scale:           # 时间尺度范围（100% 的时间区域）
+      - 1.0
+      - 1.0
+    max_temporal_keep: 1.0    # 时间维度上最多保留 100% 的区域
+    max_keep: null            # 空间维度不限保留量（null=不限制）
+
+  # 第二组掩码：小块但密集的遮挡
+  - aspect_ratio:             # 掩码块的宽高比范围
+      - 0.75
+      - 1.5
+    num_blocks: 2             # 掩码块的数量（2 个大的块）
+    spatial_scale:            # 空间尺度范围（70% 的空间区域被遮挡）
+      - 0.7
+      - 0.7
+    temporal_scale:           # 时间尺度范围（100% 的时间区域）
       - 1.0
       - 1.0
     max_temporal_keep: 1.0
     max_keep: null
-  - aspect_ratio:
-      - 0.75
-      - 1.5
-    num_blocks: 2
-    spatial_scale:
-      - 0.7
-      - 0.7
-    temporal_scale:
-      - 1.0
-      - 1.0
-    max_temporal_keep: 1.0
-    max_keep: null
+
+# ---- 元配置 ----
 meta:
-  load_checkpoint: false
-  read_checkpoint: null
-  seed: 234
-  eval_freq: 100
-  use_sdpa: true
-  dtype: bfloat16
+  load_checkpoint: false      # 不从之前的检查点恢复训练
+  read_checkpoint: null       # 不指定恢复检查点路径
+  seed: 234                   # 随机种子（确保可复现性）
+  eval_freq: 100              # 评估频率（每 100 个 epoch 评估一次）
+  use_sdpa: true              # 使用 PyTorch 的 scaled_dot_product_attention（更高效的注意力实现）
+  dtype: bfloat16             # 训练数据类型（bfloat16 节省显存，数值稳定性好）
+
+# ---- 模型架构配置 ----
 model:
-  model_name: vit_huge
-  pred_depth: 12
-  pred_embed_dim: 384
-  uniform_power: true
-  use_mask_tokens: true
-  zero_init_mask_tokens: true
+  model_name: vit_huge        # ViT 模型规模：vit_huge（~1.44B 参数，含预测器）
+  pred_depth: 12              # 预测器（predictor）的 Transformer 层数
+  pred_embed_dim: 384         # 预测器的嵌入维度（比编码器小，形成瓶颈结构）
+  uniform_power: true         # 使用均匀幂分布初始化位置编码（而非标准正弦余弦）
+  use_mask_tokens: true       # 使用可学习的掩码 token（标记被遮挡的位置）
+  zero_init_mask_tokens: true # 将掩码 token 初始化为 0（有助于训练稳定性）
+
+# ---- 优化配置 ----
 optimization:
-  ipe: 300
-  ipe_scale: 1.25
-  clip_grad: 10.0
-  weight_decay: 0.04
-  final_weight_decay: 0.4
-  epochs: 300
-  warmup: 40
-  start_lr: 0.0002
-  lr: 0.000625
-  final_lr: 1.0e-06
-  ema:
-  - 0.998
-  - 1.0
+  ipe: 300                    # 每个 epoch 的迭代步数（iterations per epoch）
+  ipe_scale: 1.25             # ipe 的缩放因子（实际 ipe = 300 x 1.25 的多次迭代）
+  clip_grad: 10.0             # 梯度裁剪阈值（防止梯度爆炸，10.0 相对宽松）
+  weight_decay: 0.04          # 初始权重衰减系数（L2 正则化）
+  final_weight_decay: 0.4     # 最终权重衰减系数（从 0.04 余弦增长到 0.4）
+  epochs: 300                 # 总训练 epoch 数
+  warmup: 40                  # 学习率预热的 epoch 数
+  start_lr: 0.0002            # 预热起始学习率
+  lr: 0.000625                # 基准学习率（预热后达到）
+  final_lr: 1.0e-06           # 最终学习率（余弦退火后，接近 0）
+  ema:                        # 目标编码器的 EMA（指数移动平均）参数
+  - 0.998                     # EMA 起始值
+  - 1.0                       # EMA 结束值（从 0.998 余弦增长到 1.0）

@@ -1,34 +1,87 @@
-nodes: 8
-tasks_per_node: 8
-tag: in1k-16f
+# ============================================================================
+# V-JEPA ImageNet-1K 图像分类评估配置 (ViT-H/16)
+# ============================================================================
+#
+# 本文件定义了使用冻结的 V-JEPA ViT-H/16 编码器在 ImageNet-1K 上进行
+# 图像分类评估的完整配置。
+#
+# 【评估流程】
+#   1. 加载 V-JEPA 预训练的 ViT-H/16 编码器（目标编码器）
+#   2. 冻结编码器的所有参数（不参与训练）
+#   3. 在编码器之上添加简单的注意力分类器（AttentiveClassifier）
+#   4. 在 ImageNet-1K 训练集上训练分类器（仅分类器参数更新）
+#   5. 在 ImageNet-1K 验证集上评估 top-1 准确率
+#
+# 【ImageNet-1K 数据集】
+#   - 训练集：1,281,167 张图像
+#   - 验证集：50,000 张图像
+#   - 类别数：1,000 类
+#   - 图像分辨率：通常 224x224（本配置）
+#
+# 【与视频评估的兼容性】
+#   即使预训练是用视频数据做的（frames_per_clip: 16），
+#   也可以通过将帧数设置为 16 来评估单张图像：
+#   图像会被复制 16 次模拟一个静态视频 clip。
+#
+# 【分布式设置】
+#   nodes: 8, tasks_per_node: 8 → 64 GPU 进行评估
+#   评估比预训练需要的 GPU 更少，因为编码器是冻结的。
+# ============================================================================
+
+# ---- 分布式训练设置 ----
+nodes: 8                      # GPU 节点数量
+tasks_per_node: 8             # 每个节点的 GPU 数（总计 64 GPU）
+tag: in1k-16f                 # 实验标签：ImageNet-1K，16 帧
+
+# ---- 评估任务名称 ----
+# 这个名称会被 evals/scaffold.py 路由到对应的评估脚本
+# 'image_classification_frozen' → evals/image_classification_frozen/eval.py
 eval_name: image_classification_frozen
-resume_checkpoint: false
+
+# ---- 恢复设置 ----
+resume_checkpoint: false      # 是否从上次检查点恢复（false = 从头训练分类器）
+
+# ---- 数据配置 ----
 data:
-  root_path: /your_absolute_file_path_to_directory_where_image_datasets_are_stored/
-  image_folder: imagenet_full_size/061417/
-  num_classes: 1000
-  resolution: 224
-  dataset_name: ImageNet
+  root_path: /your_absolute_file_path_to_directory_where_image_datasets_are_stored/  # 数据集根目录
+  image_folder: imagenet_full_size/061417/  # ImageNet 图像子文件夹
+  num_classes: 1000           # ImageNet-1K 的类别数（1000 类）
+  resolution: 224             # 图像分辨率（224x224）
+  dataset_name: ImageNet      # 数据集名称（用于数据加载器查找）
+
+# ---- 优化配置 ----
 optimization:
-  num_epochs: 20
-  batch_size: 16
-  weight_decay: 0.001
-  lr: 0.001
-  start_lr: 0.001
-  final_lr: 0.0
-  warmup: 0.
-  use_bfloat16: true
+  num_epochs: 20              # 训练 epoch 数（分类器训练通常只需少量 epoch）
+  batch_size: 16              # 每个 GPU 的批次大小
+  weight_decay: 0.001         # 权重衰减系数（1e-3，L2 正则化）
+  lr: 0.001                   # 基准学习率（1e-3）
+  start_lr: 0.001             # 起始学习率（与 lr 相同，无预热增长）
+  final_lr: 0.0               # 最终学习率（余弦退火到 0）
+  warmup: 0.                  # 预热 epoch 数为 0（不需要预热，从 start_lr=lr 开始）
+  use_bfloat16: true          # 使用 bfloat16 混合精度训练
+
+# ---- 预训练模型配置 ----
 pretrain:
-  model_name: vit_huge
-  checkpoint_key: target_encoder
-  clip_duration: null
-  frames_per_clip: 16
-  tubelet_size: 2
-  uniform_power: true
-  use_sdpa: true
-  use_silu: false
-  tight_silu: false
-  patch_size: 16
-  folder: /your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-latest.pth.tar  # name of pretrained model file inside folder
-  write_tag: jepa
+  model_name: vit_huge        # ViT 模型规模：vit_huge（ViT-Huge）
+  checkpoint_key: target_encoder  # 从检查点中加载 target_encoder（V-JEPA 的目标编码器）
+  clip_duration: null         # 不使用时间长度限制（对于图像，此值无意义）
+
+  # ---- 视频兼容参数 ----
+  # 以下参数允许用视频预训练的 ViT 模型评估图像
+  frames_per_clip: 16         # 每个 clip 的帧数
+                              # 16 帧的含义：单张图像会被复制 16 次
+                              # 通过注册 forward_pre_hook 自动完成
+  tubelet_size: 2             # 时间 tubelet 大小（与预训练时保持一致）
+                              # 对图像评估：16 帧 / 2 = 8 个时间 token
+
+  # ---- ViT 架构参数 ----
+  uniform_power: true         # 使用均匀幂分布位置编码（与预训练一致）
+  use_sdpa: true              # 使用 PyTorch 高效注意力实现（scaled_dot_product_attention）
+  use_silu: false             # 不使用 SiLU 激活函数（使用默认的 GELU）
+  tight_silu: false           # SiLU 相关参数（use_silu=false 时无影响）
+  patch_size: 16              # patch 大小 16（224/16=14，14x14=196 个空间 patch）
+
+  # ---- 预训练模型路径 ----
+  folder: /your_absolute_file_path_to_directory_where_pretrained_models_are_contained/  # 预训练模型文件夹
+  checkpoint: jepa-latest.pth.tar  # 预训练检查点文件名
+  write_tag: jepa             # 日志和保存文件的标签前缀
