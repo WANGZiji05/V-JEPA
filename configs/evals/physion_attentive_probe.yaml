@@ -22,10 +22,12 @@
 #
 # 【数据准备】
 #   在运行评估前，需要先准备好 Physion++ 数据：
-#   1. 从 https://physion-v2.s3.amazonaws.com/ 下载数据
-#   2. 使用 TDW 渲染视频（或使用预渲染的视频）
-#   3. 运行 scripts/prepare_physion_data.py 生成 CSV 索引文件
-#   4. 将生成的 CSV 路径填入下方的 dataset_train / dataset_val
+#   1. 下载数据并解压（已包含预渲染的 MP4 视频，无需额外渲染）
+#   2. 运行 scripts/prepare_physion_data.py 生成 CSV 索引文件：
+#        python scripts/prepare_physion_data.py \
+#            --data_root /path/to/your/physion_data/ \
+#            --output_dir ./physion_csv
+#   3. 将生成的 CSV 路径填入下方的 dataset_train / dataset_val
 #
 # 【评估模式说明】
 #   eval_mode 支持三种模式:

@@ -13,13 +13,15 @@
 #     2. 或者使用较小的模型（vit_base / vit_large）
 #
 # 【数据准备】
-#   运行 scripts/prepare_physion_data.py 生成 train_data.csv：
+#   运行 scripts/prepare_physion_data.py 生成训练 CSV：
 #     python scripts/prepare_physion_data.py \
-#         --data_root /path/to/physion_v2 \
+#         --data_root /path/to/your/physion_data/ \
 #         --splits train \
-#         --output_dir /path/to/physion_csv
+#         --videodataset_format \
+#         --output_dir ./physion_csv
 #
-#   然后将生成的 CSV 路径填入下方的 datasets 列表。
+#   注意：预训练使用标准 VideoDataset，需要空格分隔的 2 列 CSV。
+#   使用 --videodataset_format 生成兼容格式 (*_vd.csv)。
 #
 # 【启动训练】
 #   # 本地多 GPU

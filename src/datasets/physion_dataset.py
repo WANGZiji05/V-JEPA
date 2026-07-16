@@ -12,45 +12,45 @@
 # Physion++ 是一个用于评估物理场景理解能力的数据集。
 # 任务 (OCP - Object Contact Prediction): 预测两个物体是否会接触。
 #
-# 【数据集结构】
-#   Physion++ 包含 4 种物理属性，每种属性有独立的试验：
-#     - mass           (质量)
-#     - friction       (摩擦力)
-#     - elasticity     (弹性)
-#     - deformability  (可变形性)
+# 【数据集包含 4 种物理属性】
+#   - mass           (质量)
+#   - friction       (摩擦力)
+#   - elasticity     (弹性，对应 bouncy_* 场景)
+#   - deformability  (可变形性)
 #
-#   数据划分为三个子集：
-#     - train_data:   2000 trials/property (无标签，但实际一半 YES 一半 NO)
-#     - readout_data: 192 trials/property  (用于训练探针)
-#     - test_data:    192 trials/property  (96 对配对试验，用于最终评估)
+# 【数据划分为三个子集】
+#   - data_v1:          训练集 (用于自监督预训练或探针训练)
+#   - readout_data_v1:  读出色合 (用于训练探针)
+#   - testdata_v1:      测试集 (配对试验，用于最终评估)
+#
+# 【实际目录结构】
+#   data_v1/
+#   ├── bouncy_wall_pp/              # scenario 文件夹
+#   │   └── bouncy_wall-zld=0-.../   # config 子文件夹
+#   │       ├── 0000_img.mp4          # RGB 视频 (V-JEPA 使用这个)
+#   │       ├── 0000_id.mp4           # 分割掩码视频 (忽略)
+#   │       └── 0000.pkl              # 元数据 (含 OCP 标签)
+#   ├── friction_collision_pp/
+#   ├── mass_dominoes_pp/
+#   └── ...
+#
+#   testdata_v1/ 额外包含 merge CSV 文件存放标签：
+#     physionpp-bouncy_merge_*.csv   → elasticity 标签
+#     physionpp-deform_merge_*.csv   → deformability 标签
+#     physionpp-friction_merge_*.csv → friction 标签
+#     physionpp-mass_merge_*.csv     → mass 标签
 #
 # 【配对试验 (Paired Trials) 设计】
-#   readout 和 test 集采用"配对"设计：
+#   测试集中每个 scenario 都有 -copy0 和 -copy1 两个版本。
 #   两个 trial 在预测阶段的初始帧看起来完全一样，
 #   但因为底层物理属性值不同，最终结果（接触/不接触）不同。
 #   这迫使模型学习真正的物理理解，而非依赖表面的视觉线索。
 #
-# 【数据格式】
-#   原始数据：
-#     - .json 文件：物体 ID 和分割掩码
-#     - .pkl 文件：元数据（摩擦系数、质量、弹性、位置/旋转/速度、
-#                  相机矩阵、碰撞事件、trial seed、标签、
-#                  start_frame_for_prediction 等）
-#
-#   本 Dataset 类支持两种输入方式：
-#     1. CSV 索引文件（推荐）：每行 "视频路径,物理属性,标签"
-#        视频需预先从仿真数据渲染（使用 TDW 渲染器）
-#     2. 直接目录结构：自动扫描 Physion++ 目录结构
-#
-# 【CSV 格式说明】
-#   每行格式: /path/to/video.mp4,property_name,binary_label
+# 【CSV 索引格式】
+#   由 scripts/prepare_physion_data.py 生成。每行格式:
+#     /absolute/path/to/0000_img.mp4,property_name,label
 #     - property_name: 'mass' | 'friction' | 'elasticity' | 'deformability'
-#     - binary_label: 0 (不会接触, NO) | 1 (会接触, YES)
-#
-#   对于 train_data（无标签），label 设为 -1
-#     每行格式: /path/to/video.mp4,property_name,-1
-#
-# 使用 scripts/prepare_physion_data.py 可以从原始 Physion++ 数据生成 CSV 文件。
+#     - label: 0 (不会接触, NO) | 1 (会接触, YES) | -1 (无标签)
 # ============================================================================
 
 import os
