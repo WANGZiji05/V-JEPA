@@ -1,0 +1,136 @@
+# ============================================================================
+# V-JEPA Physion++ 预训练配置
+# ============================================================================
+#
+# 【使用说明】
+#   使用 Physion++ 的 train_data（无标签数据）进行 V-JEPA 自监督预训练。
+#   Physion++ train_data 包含 8000 个视频（4 种属性 × 2000 trials），
+#   适合用于小规模实验或领域适应性预训练（domain adaptation）。
+#
+#   注意：Physion++ 数据量较小（~8000 视频），从头预训练一个大模型可能不够。
+#   建议的使用方式：
+#     1. 从现有的 V-JEPA 大模型检查点开始，用 Physion++ 做继续预训练
+#     2. 或者使用较小的模型（vit_base / vit_large）
+#
+# 【数据准备】
+#   运行 scripts/prepare_physion_data.py 生成 train_data.csv：
+#     python scripts/prepare_physion_data.py \
+#         --data_root /path/to/physion_v2 \
+#         --splits train \
+#         --output_dir /path/to/physion_csv
+#
+#   然后将生成的 CSV 路径填入下方的 datasets 列表。
+#
+# 【启动训练】
+#   # 本地多 GPU
+#   python -m app.main \
+#       --fname configs/pretrain/physion_vith16.yaml \
+#       --devices cuda:0 cuda:1 cuda:2 cuda:3
+#
+#   # 从已有检查点继续训练
+#   python -m app.main \
+#       --fname configs/pretrain/physion_vith16.yaml \
+#       --devices cuda:0 cuda:1 \
+#       pretrain.folder=/path/to/existing/checkpoint/ \
+#       pretrain.checkpoint=jepa-latest.pth.tar
+# ============================================================================
+
+app: vjepa
+nodes: 1
+tasks_per_node: 4
+tag: physion_pretrain
+
+data:
+  dataset_type: VideoDataset
+  # Physion++ train_data CSV 索引文件
+  datasets:
+    - /your_path_to_physion_train_data_csv.csv
+  decode_one_clip: true
+  batch_size: 8
+  num_clips: 1
+  num_frames: 16
+  tubelet_size: 2
+  sampling_rate: 4
+  crop_size: 224
+  patch_size: 16
+  # Physion++ 数据量小，不需要多数据集加权
+  datasets_weights: null
+
+data_aug:
+  random_resize_aspect_ratio:
+    - 0.75
+    - 1.3333
+  random_resize_scale:
+    - 0.3
+    - 1.0
+  reprob: 0.0
+  auto_augment: false
+  motion_shift: false
+
+logging:
+  folder: /your_path_to_output_checkpoints/
+  write_tag: physion_pretrain
+
+loss:
+  loss_exp: 1.0
+  reg_coeff: 0.0
+
+mask:
+  - aspect_ratio:
+      - 0.75
+      - 0.75
+    num_blocks: 8
+    spatial_scale:
+      - 0.15
+      - 0.15
+    temporal_scale:
+      - 1.0
+      - 1.0
+  - aspect_ratio:
+      - 0.75
+      - 1.5
+    num_blocks: 2
+    spatial_scale:
+      - 0.7
+      - 0.7
+    temporal_scale:
+      - 1.0
+      - 1.0
+
+meta:
+  seed: 42
+  eval_freq: 5
+  dtype: bfloat16
+  use_sdpa: true
+
+model:
+  model_name: vit_large
+  pred_depth: 12
+  pred_embed_dim: 384
+
+optimization:
+  epochs: 200
+  batch_size: 8
+  start_lr: 0.0002
+  lr: 0.000625
+  final_lr: 1.0e-6
+  weight_decay: 0.04
+  warmup: 40
+  ema:
+    - 0.998
+    - 1.0
+  ipe: 150
+  clip_grad: 3.0
+
+pretrain:
+  folder: null
+  checkpoint: null
+  checkpoint_key: target_encoder
+  model_name: vit_large
+  patch_size: 16
+  tubelet_size: 2
+  frames_per_clip: 16
+  use_sdpa: true
+  use_silu: false
+  tight_silu: false
+  uniform_power: true

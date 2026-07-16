@@ -1,0 +1,108 @@
+# ============================================================================
+# V-JEPA Physion++ Attentive Probe 评估配置
+# ============================================================================
+#
+# 本配置文件用于在 Physion++ 数据集上评估 V-JEPA 预训练模型的
+# 物理场景理解能力。
+#
+# 【使用方式】
+#
+#   # 本地单 GPU 评估
+#   python -m evals.main \
+#       --fname configs/evals/physion_attentive_probe.yaml \
+#       --devices cuda:0
+#
+#   # 本地多 GPU 评估
+#   python -m evals.main \
+#       --fname configs/evals/physion_attentive_probe.yaml \
+#       --devices cuda:0 cuda:1 cuda:2 cuda:3
+#
+#   # SLURM 集群提交
+#   sbatch scripts/slurm/run_physion_probe.sh
+#
+# 【数据准备】
+#   在运行评估前，需要先准备好 Physion++ 数据：
+#   1. 从 https://physion-v2.s3.amazonaws.com/ 下载数据
+#   2. 使用 TDW 渲染视频（或使用预渲染的视频）
+#   3. 运行 scripts/prepare_physion_data.py 生成 CSV 索引文件
+#   4. 将生成的 CSV 路径填入下方的 dataset_train / dataset_val
+#
+# 【评估模式说明】
+#   eval_mode 支持三种模式:
+#     - per_property (推荐): 每种物理属性独立训练一个探针
+#     - joint: 所有属性混合训练一个统一探针
+#     - multi_head: 共享 encoder，每种属性独立分类头 (TODO)
+# ============================================================================
+
+# ---- 分布式设置 ----
+nodes: 1
+tasks_per_node: 1
+tag: physion_probe
+eval_name: physion_attentive_probe
+resume_checkpoint: false
+
+# ---- 评估模式 ----
+eval_mode: per_property
+# 要评估的属性 (null = 全部 4 种)
+# 可选值: mass, friction, elasticity, deformability
+properties: null
+
+# ---- 数据参数 ----
+data:
+  # Physion++ readout 集 CSV 索引文件 (用于训练探针)
+  # CSV 格式: /path/to/video.mp4,property_name,label
+  dataset_train: /your_path_to_physion_readout_data_csv_index.csv
+
+  # Physion++ test 集 CSV 索引文件 (用于最终评估)
+  # CSV 格式: /path/to/video.mp4,property_name,label
+  dataset_val: /your_path_to_physion_test_data_csv_index.csv
+
+  frames_per_clip: 16
+  frame_step: 4
+  clip_duration: null
+
+# ---- 探针参数 ----
+# probe_depth: AttentivePooler 的深度
+#   1 = 仅交叉注意力（轻量，推荐）
+#   >1 = 交叉注意力 + (depth-1) 层自注意力精炼
+probe_depth: 1
+
+# probe_complete_block: True = 使用 CrossAttentionBlock（交叉注意力 + MLP）
+probe_complete_block: true
+
+# ---- 优化参数 ----
+optimization:
+  resolution: 224
+  batch_size: 16
+  num_epochs: 50
+  weight_decay: 0.01
+  lr: 0.001
+  start_lr: 0.0001
+  final_lr: 0.0
+  warmup: 0.1
+  use_bfloat16: true
+
+  # 数据增强参数
+  # Physion++ 视频由 TDW 渲染，场景相对干净
+  # 建议谨慎使用强增强以避免破坏物理运动信息
+  reprob: 0.0            # 随机擦除概率 (0 = 禁用)
+  auto_augment: false    # RandAugment 自动增强 (false = 禁用)
+  random_horizontal_flip: false  # 水平翻转可能改变运动方向
+
+# ---- 预训练模型参数 ----
+pretrain:
+  model_name: vit_huge          # V-JEPA 模型: vit_huge / vit_large / vit_base
+  checkpoint_key: target_encoder
+  clip_duration: null
+  frames_per_clip: 16
+  tubelet_size: 2
+  uniform_power: true
+  use_silu: false
+  tight_silu: false
+  use_sdpa: true
+  patch_size: 16
+  # 预训练模型文件夹路径
+  folder: /your_path_to_pretrained_models/
+  # 预训练检查点文件名
+  checkpoint: jepa-latest.pth.tar
+  write_tag: physion_probe

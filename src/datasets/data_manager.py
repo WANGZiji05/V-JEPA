@@ -111,5 +111,33 @@ def init_data(
             drop_last=drop_last,
             log_dir=log_dir)
 
+    elif data.lower() == 'physiondataset':
+        # ---- Physion++ 数据集（用于物理场景理解评估） ----
+        from src.datasets.physion_dataset import make_physion_dataset
+        data_loader, dist_sampler = make_physion_dataset(
+            data_paths=root_path,
+            batch_size=batch_size,
+            frames_per_clip=clip_len,
+            frame_step=frame_sample_rate,
+            duration=duration,
+            num_clips=num_clips,
+            random_clip_sampling=random_clip_sampling,
+            allow_clip_overlap=allow_clip_overlap,
+            filter_short_videos=filter_short_videos,
+            filter_long_videos=filter_long_videos,
+            shared_transform=shared_transform,
+            transform=transform,
+            rank=rank,
+            world_size=world_size,
+            collator=collator,
+            num_workers=num_workers,
+            pin_mem=pin_mem,
+            drop_last=drop_last,
+            log_dir=log_dir,
+            return_property_label=False,
+        )
+        # Physion++ 的 make_physion_dataset 不返回 dataset 对象
+        dataset = None
+
     # 只返回data_loader和dist_sampler（dataset不是必需的）
     return (data_loader, dist_sampler)
