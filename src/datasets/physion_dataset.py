@@ -274,9 +274,16 @@ class PhysionDataset(torch.utils.data.Dataset):
             else:
                 logger.warning(f'Unsupported file format: {data_path}')
 
-        self.samples = samples
-        self.ocp_labels = ocp_labels
-        self.property_labels = property_labels
+        # ---- 过滤掉标签为 -1 的无效样本 ----
+        valid_indices = [i for i, lbl in enumerate(ocp_labels) if lbl >= 0]
+        if len(valid_indices) < len(ocp_labels):
+            logger.info(
+                f'Filtered out {len(ocp_labels) - len(valid_indices)} '
+                f'unlabeled entries (label=-1)'
+            )
+        self.samples = [samples[i] for i in valid_indices]
+        self.ocp_labels = [ocp_labels[i] for i in valid_indices]
+        self.property_labels = [property_labels[i] for i in valid_indices]
 
         # 统计各属性样本数
         if len(property_labels) > 0:
