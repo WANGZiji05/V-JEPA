@@ -155,7 +155,10 @@ def extract_label_from_pkl(pkl_path):
     """
     从 .pkl 元数据文件中提取 OCP 标签。
 
-    尝试多种可能的键名，覆盖不同版本的数据格式。
+    Physion++ 实际数据结构:
+      data['static']['does_target_contact_zone']  → bool (OCP label)
+      data['static0']['does_target_contact_zone']  → 部分 readout 数据用此键
+      data['frames'][last_frame]['labels']['target_contacting_zone'] → 逐帧标签
 
     返回:
         int: 0 (NO contact), 1 (YES contact), 或 -1 (未找到)
@@ -164,23 +167,29 @@ def extract_label_from_pkl(pkl_path):
         with open(pkl_path, 'rb') as f:
             metadata = pickle.load(f)
 
-        # 尝试显式的 label 键名
-        for key in ['label', 'ocp_label', 'contact_label',
-                     'outcome', 'target_hit_zone_labels']:
-            if key in metadata:
-                val = metadata[key]
-                if isinstance(val, bool):
-                    return 1 if val else 0
-                return int(val)
+        # ── 方法 1: static 中的全局标签 ──
+        for static_key in ['static', 'static0']:
+            if static_key in metadata:
+                static = metadata[static_key]
+                if 'does_target_contact_zone' in static:
+                    val = static['does_target_contact_zone']
+                    if isinstance(val, bool):
+                        return 1 if val else 0
+                    return int(val)
 
-        # 从 collision / collision_events 推断
-        for key in ['collision', 'collision_events', 'hit']:
-            if key in metadata:
-                val = metadata[key]
-                if isinstance(val, bool):
-                    return 1 if val else 0
-                if isinstance(val, (list, tuple)):
-                    return 1 if any(val) else 0
+        # ── 方法 2: 从最后一帧的 labels 推断 ──
+        if 'frames' in metadata:
+            frames = metadata['frames']
+            if frames:
+                last_frame_key = sorted(frames.keys(), key=int)[-1]
+                last_frame = frames[last_frame_key]
+                if 'labels' in last_frame:
+                    lbl = last_frame['labels']
+                    if 'target_contacting_zone' in lbl:
+                        val = lbl['target_contacting_zone']
+                        if isinstance(val, bool):
+                            return 1 if val else 0
+                        return int(val)
 
         return -1  # 未找到标签
 
