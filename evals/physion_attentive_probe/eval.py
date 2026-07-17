@@ -576,7 +576,10 @@ def run_physion_epoch(
             # ---- 前向传播 ----
             # Encoder: [B, C, T, H, W] → [B, N_patches, D]
             with torch.no_grad():
-                features = encoder(clips)
+                if use_bfloat16:
+                    features = encoder(clips.half())
+                else:
+                    features = encoder(clips)
 
             # Classifier/Probe: [B, N_patches, D] → [B, 2]
             logits = classifier(features)
