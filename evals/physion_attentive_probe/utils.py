@@ -14,7 +14,6 @@ V-JEPA Physion++ 注意力探针评估 —— 工具模块
 """
 
 import torch
-import torchvision.transforms as transforms
 
 import src.datasets.utils.video.transforms as video_transforms
 import src.datasets.utils.video.volume_transforms as volume_transforms
@@ -160,7 +159,9 @@ class PhysionTransform(object):
         if not self.training:
             return [self.eval_transform(buffer)]
 
-        # 训练模式变换流水线
+        # 训练模式变换流水线（延迟导入 torchvision，避免 PIL 依赖问题）
+        import torchvision.transforms as transforms
+
         buffer = [transforms.ToPILImage()(frame) for frame in buffer]
 
         if self.auto_augment:
