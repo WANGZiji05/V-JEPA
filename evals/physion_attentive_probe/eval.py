@@ -400,11 +400,13 @@ def _evaluate_single_property(
         num_epochs=num_epochs,
         use_bfloat16=use_bfloat16,
     )
-    classifier = DistributedDataParallel(classifier, static_graph=True)
 
     # ---- 检查点路径 ----
     latest_path = os.path.join(
         folder, f'{tag}_property_{property_name}_latest.pth.tar'
+    )
+    best_path = os.path.join(
+        folder, f'{tag}_property_{property_name}_best.pth.tar'
     )
     log_file = os.path.join(
         folder, f'{tag}_property_{property_name}_r{rank}.csv'
@@ -420,7 +422,7 @@ def _evaluate_single_property(
             ('%.5f', 'val_acc'),
         )
 
-    # ---- 恢复训练 ----
+    # ---- 恢复训练（必须在 DDP 包装之前！）----
     start_epoch = 0
     if resume_checkpoint:
         classifier, optimizer, scaler, start_epoch = _load_physion_checkpoint(
@@ -433,6 +435,10 @@ def _evaluate_single_property(
         for _ in range(start_epoch * ipe):
             scheduler.step()
             wd_scheduler.step()
+        logger.info(f'Resumed from epoch {start_epoch}')
+
+    # ---- DDP 包装（必须在恢复之后）----
+    classifier = DistributedDataParallel(classifier, static_graph=True)
 
     def save_checkpoint(epoch, path):
         save_dict = {
