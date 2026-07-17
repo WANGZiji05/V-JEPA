@@ -16,9 +16,6 @@ V-JEPA Physion++ 注意力探针评估 —— 工具模块
 import numpy as np
 import torch
 
-from src.datasets.utils.video.volume_transforms import ClipToTensor
-
-
 # Physion++ 数据集归一化参数（ImageNet 标准值）
 PHYSION_MEAN = (0.485, 0.456, 0.406)
 PHYSION_STD = (0.229, 0.224, 0.225)
