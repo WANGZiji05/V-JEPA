@@ -65,14 +65,14 @@ echo "=============================================="
 CONFIG="${CONFIG:-configs/evals/physion_attentive_probe.yaml}"
 
 # 预训练模型路径
-PRETRAIN_FOLDER="${PRETRAIN_FOLDER:-/your_path_to_pretrained_models/}"
+PRETRAIN_FOLDER="${PRETRAIN_FOLDER:-/research/d7/spc/yrwang5/V-JEPA/pretrained_models/}"
 
 # 预训练检查点
 CHECKPOINT="${CHECKPOINT:-jepa-latest.pth.tar}"
 
 # Physion++ 数据 CSV 文件路径
-TRAIN_CSV="${TRAIN_CSV:-/your_path_to_physion_readout_data_csv_index.csv}"
-VAL_CSV="${VAL_CSV:-/your_path_to_physion_test_data_csv_index.csv}"
+TRAIN_CSV="${TRAIN_CSV:-/research/d7/spc/yrwang5/V-JEPA/V-JEPA/physion_csv/readout_data.csv}"
+VAL_CSV="${VAL_CSV:-/research/d7/spc/yrwang5/V-JEPA/V-JEPA/physion_csv/test_data.csv}"
 
 # 评估模式: per_property, joint
 EVAL_MODE="${EVAL_MODE:-per_property}"
