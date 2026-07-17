@@ -52,12 +52,10 @@ properties: null
 # ---- 数据参数 ----
 data:
   # Physion++ readout 集 CSV 索引文件 (用于训练探针)
-  # CSV 格式: /path/to/video.mp4,property_name,label
-  dataset_train: /your_path_to_physion_readout_data_csv_index.csv
+  dataset_train: /research/d7/spc/yrwang5/V-JEPA/V-JEPA/physion_csv/readout_data.csv
 
   # Physion++ test 集 CSV 索引文件 (用于最终评估)
-  # CSV 格式: /path/to/video.mp4,property_name,label
-  dataset_val: /your_path_to_physion_test_data_csv_index.csv
+  dataset_val: /research/d7/spc/yrwang5/V-JEPA/V-JEPA/physion_csv/test_data.csv
 
   frames_per_clip: 16
   frame_step: 4
@@ -104,7 +102,7 @@ pretrain:
   use_sdpa: true
   patch_size: 16
   # 预训练模型文件夹路径
-  folder: /your_path_to_pretrained_models/
+  folder: /research/d7/spc/yrwang5/V-JEPA/pretrained_models/
   # 预训练检查点文件名
-  checkpoint: jepa-latest.pth.tar
+  checkpoint: vith16.pth.tar
   write_tag: physion_probe
