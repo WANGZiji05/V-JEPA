@@ -80,7 +80,7 @@ optimization:
   start_lr: 0.0001
   final_lr: 0.0
   warmup: 0.1
-  use_bfloat16: true
+  use_bfloat16: false
 
   # 数据增强参数
   # Physion++ 视频由 TDW 渲染，场景相对干净
