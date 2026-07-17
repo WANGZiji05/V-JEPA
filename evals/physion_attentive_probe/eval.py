@@ -201,7 +201,7 @@ def main(args_eval, resume_preempt=False):
         use_SiLU=use_SiLU,
         tight_SiLU=tight_SiLU,
         use_sdpa=use_sdpa,
-    )
+    ).float()  # 强制 float32，避免与 autocast 类型冲突
 
     # 冻结编码器
     encoder.eval()
@@ -575,10 +575,11 @@ def run_physion_epoch(
 
             # ---- 前向传播 ----
             # Encoder: [B, C, T, H, W] → [B, N_patches, D]
+            # 使用 autocast 自动处理 float16/float32 转换
             with torch.no_grad():
-                if use_bfloat16:
-                    features = encoder(clips.half())
-                else:
+                with torch.cuda.amp.autocast(
+                    dtype=torch.float16, enabled=use_bfloat16
+                ):
                     features = encoder(clips)
 
             # Classifier/Probe: [B, N_patches, D] → [B, 2]
