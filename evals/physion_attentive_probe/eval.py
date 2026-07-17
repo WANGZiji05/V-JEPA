@@ -573,14 +573,17 @@ def run_physion_epoch(
             labels = data[1].to(device)
             batch_size = len(labels)
 
+            # ---- 数据解包（Physion++ 数据可能嵌套在 list 中） ----
+            if isinstance(clips, list):
+                while isinstance(clips, list) and len(clips) > 0:
+                    clips = clips[0]
+
             # ---- 前向传播 ----
-            # Encoder: [B, C, T, H, W] → [B, N_patches, D]
-            # 使用 autocast 自动处理 float16/float32 转换
+            # V-JEPA 官方检查点权重是 float16，输入也转为 float16
             with torch.no_grad():
-                with torch.cuda.amp.autocast(
-                    dtype=torch.float16, enabled=use_bfloat16
-                ):
-                    features = encoder(clips)
+                model_dtype = next(encoder.parameters()).dtype
+                clips = clips.to(device=device, dtype=model_dtype)
+                features = encoder(clips)
 
             # Classifier/Probe: [B, N_patches, D] → [B, 2]
             logits = classifier(features)
