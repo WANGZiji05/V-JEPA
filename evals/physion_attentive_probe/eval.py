@@ -434,7 +434,7 @@ def _evaluate_single_property(
             scheduler.step()
             wd_scheduler.step()
 
-    def save_checkpoint(epoch):
+    def save_checkpoint(epoch, path):
         save_dict = {
             'classifier': classifier.state_dict(),
             'opt': optimizer.state_dict(),
@@ -445,7 +445,7 @@ def _evaluate_single_property(
             'lr': ref_lr,
         }
         if rank == 0:
-            torch.save(save_dict, latest_path)
+            torch.save(save_dict, path)
 
     # ========================================================================
     # 训练循环
@@ -497,7 +497,14 @@ def _evaluate_single_property(
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_epoch = epoch + 1
-            save_checkpoint(epoch + 1)
+            # 保存最优检查点
+            best_path = os.path.join(
+                folder, f'{tag}_property_{property_name}_best.pth.tar'
+            )
+            save_checkpoint(epoch + 1, best_path)
+
+        # 无论是否最优，始终保存最新检查点（用于断点续训）
+        save_checkpoint(epoch + 1, latest_path)
 
     logger.info(
         f'[{property_name}] Best val_acc: {best_val_acc:.2f}% '
@@ -767,7 +774,11 @@ def _load_physion_checkpoint(device, r_path, classifier, opt, scaler):
         epoch = checkpoint['epoch']
 
         pretrained_dict = checkpoint['classifier']
-        msg = classifier.load_state_dict(pretrained_dict)
+        # 去掉 DDP 包装的 'module.' 前缀
+        pretrained_dict = {
+            k.replace('module.', ''): v for k, v in pretrained_dict.items()
+        }
+        msg = classifier.load_state_dict(pretrained_dict, strict=False)
         logger.info(
             f'Loaded pretrained classifier from epoch {epoch} with msg: {msg}'
         )
