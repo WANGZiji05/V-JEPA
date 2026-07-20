@@ -59,6 +59,7 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
+import torch.nn as nn
 
 from torch.nn.parallel import DistributedDataParallel
 
@@ -85,6 +86,24 @@ torch.manual_seed(_GLOBAL_SEED)
 torch.backends.cudnn.benchmark = True
 
 pp = pprint.PrettyPrinter(indent=4)
+
+
+class MeanPoolClassifier(nn.Module):
+    """
+    最简单的探针：平均池化 + 线性分类。
+
+    与 AttentiveClassifier（百万参数）相比，
+    这个只有 embed_dim × num_classes 个参数，
+    非常适合小样本防过拟合。
+    """
+    def __init__(self, embed_dim, num_classes):
+        super().__init__()
+        self.linear = nn.Linear(embed_dim, num_classes)
+
+    def forward(self, x):
+        # x: [B, N_patches, D] → mean over patches → [B, D]
+        x = x.mean(dim=1)
+        return self.linear(x)
 
 
 def main(args_eval, resume_preempt=False):
@@ -361,13 +380,21 @@ def _evaluate_single_property(
     """
 
     # ---- 创建探针分类器 ----
-    classifier = AttentiveClassifier(
-        embed_dim=encoder.embed_dim,
-        num_heads=encoder.num_heads,
-        depth=probe_depth,
-        num_classes=num_classes,
-        complete_block=probe_complete_block,
-    ).to(device)
+    if probe_depth < 0:
+        # Mean Pooling + Linear（最简单探针，防过拟合）
+        classifier = MeanPoolClassifier(
+            embed_dim=encoder.embed_dim,
+            num_classes=num_classes,
+        ).to(device)
+        logger.info('Using MeanPool + Linear probe (lightweight)')
+    else:
+        classifier = AttentiveClassifier(
+            embed_dim=encoder.embed_dim,
+            num_heads=encoder.num_heads,
+            depth=probe_depth,
+            num_classes=num_classes,
+            complete_block=probe_complete_block,
+        ).to(device)
 
     # ---- 创建数据加载器 ----
     train_loader, val_loader = _make_physion_dataloaders(
