@@ -492,6 +492,28 @@ def _evaluate_single_property(
     best_val_acc = 0.0
     best_epoch = 0
 
+    # 如果该属性已完成全部 epoch，直接从 CSV 日志恢复最优结果
+    if start_epoch >= num_epochs:
+        import csv as _csv
+        if os.path.exists(log_file):
+            with open(log_file) as _f:
+                for _row in _csv.reader(_f):
+                    if _row[0] == 'epoch':
+                        continue
+                    _acc = float(_row[4])
+                    if _acc > best_val_acc:
+                        best_val_acc = _acc
+                        best_epoch = int(_row[0])
+        logger.info(
+            f'[{property_name}] Already completed. '
+            f'Best val_acc={best_val_acc:.2f}% at epoch {best_epoch}'
+        )
+        return {
+            'property': property_name,
+            'best_val_acc': best_val_acc,
+            'best_epoch': best_epoch,
+        }
+
     for epoch in range(start_epoch, num_epochs):
         logger.info(f'[{property_name}] Epoch {epoch + 1}/{num_epochs}')
 
