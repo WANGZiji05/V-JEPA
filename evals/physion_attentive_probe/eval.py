@@ -177,6 +177,7 @@ def main(args_eval, resume_preempt=False):
     # ---- 实验标识 ----
     resume_checkpoint = args_eval.get('resume_checkpoint', False) or resume_preempt
     eval_tag = args_eval.get('tag', None)
+    probe_type = 'linear' if args_eval.get('probe_depth', 1) < 0 else 'attentive'
 
     # ========================================================================
     # 分布式初始化
@@ -245,6 +246,7 @@ def main(args_eval, resume_preempt=False):
     if eval_mode == 'joint':
         # 联合模式：所有属性混合训练一个探针
         results = _evaluate_single_property(
+            probe_type=probe_type,
             device=device,
             encoder=encoder,
             train_data_path=train_data_path,
@@ -276,7 +278,7 @@ def main(args_eval, resume_preempt=False):
             property_name='all',
         )
         if rank == 0:
-            _log_results(folder, tag, {'all': results})
+            _log_results(folder, tag, probe_type, {'all': results})
 
     elif eval_mode == 'per_property':
         # 分属性模式：每种属性独立训练和评估
@@ -287,6 +289,7 @@ def main(args_eval, resume_preempt=False):
             logger.info(f'{"="*60}')
 
             results = _evaluate_single_property(
+                probe_type=probe_type,
                 device=device,
                 encoder=encoder,
                 train_data_path=train_data_path,
@@ -320,7 +323,7 @@ def main(args_eval, resume_preempt=False):
             all_results[prop] = results
 
         if rank == 0:
-            _log_results(folder, tag, all_results)
+            _log_results(folder, tag, probe_type, all_results)
 
     elif eval_mode == 'multi_head':
         # 多头模式：共享 encoder，每种属性一个独立的分类头
@@ -337,6 +340,7 @@ def main(args_eval, resume_preempt=False):
 def _evaluate_single_property(
     device,
     encoder,
+    probe_type,
     train_data_path,
     val_data_path,
     resolution,
@@ -428,15 +432,16 @@ def _evaluate_single_property(
         use_bfloat16=use_bfloat16,
     )
 
-    # ---- 检查点路径 ----
+    # ---- 检查点路径（按探针类型区分） ----
+    probe_type = 'linear' if probe_depth < 0 else 'attentive'
     latest_path = os.path.join(
-        folder, f'{tag}_property_{property_name}_latest.pth.tar'
+        folder, f'{tag}_property_{property_name}_{probe_type}_latest.pth.tar'
     )
     best_path = os.path.join(
-        folder, f'{tag}_property_{property_name}_best.pth.tar'
+        folder, f'{tag}_property_{property_name}_{probe_type}_best.pth.tar'
     )
     log_file = os.path.join(
-        folder, f'{tag}_property_{property_name}_r{rank}.csv'
+        folder, f'{tag}_property_{property_name}_{probe_type}_r{rank}.csv'
     )
 
     if rank == 0:
@@ -830,14 +835,14 @@ def _load_physion_checkpoint(device, r_path, classifier, opt, scaler):
     return classifier, opt, scaler, epoch
 
 
-def _log_results(folder, tag, all_results):
+def _log_results(folder, tag, probe_type, all_results):
     """
     记录所有属性的评估结果。
 
     输出汇总到控制台和 results.txt 文件。
     """
 
-    results_path = os.path.join(folder, f'{tag}_results.txt')
+    results_path = os.path.join(folder, f'{tag}_{probe_type}_results.txt')
     lines = []
     lines.append('=' * 60)
     lines.append('Physion++ Attentive Probe Evaluation Results')
