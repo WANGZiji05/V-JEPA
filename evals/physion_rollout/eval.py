@@ -313,7 +313,7 @@ def _evaluate_property(device, encoder, predictor, video_paths,
             f'  H={h} (ctx={n_temporal-h} tok): '
             f'with={_w["with_mean"]:.4f}  without={_w["without_mean"]:.4f}  '
             f'Δ={_w["delta"]:+.4f}  '
-            f'shuf={_w["shuffled_mean"]:.4f}  Δ_shuf={_w["shuffled_delta"]:+.4f}'
+            f'shuf={_w["shuffled_mean"]:.4f}  Δ_shuf={_w["shuffled_delta"]:+.4f}')
 
     return results
 
