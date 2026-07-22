@@ -1,33 +1,25 @@
 # ============================================================================
-# V-JEPA Physion++ Latent Rollout 评估配置
+# V-JEPA Physion++ Latent Dynamics 评估配置
 # ============================================================================
 #
-# 实验目的：评估 V-JEPA 在 latent 空间预测物理 dynamics 的能力
+# [核心实验] Prediction Horizon Evaluation
+#   固定 context，逐步增加预测距离 (1→7 temporal tokens)
+#   测量预测相似度随 horizon 的衰减曲线
+#   H=1: 7 context tokens → 1 future token   (最近)
+#   H=2: 6 context tokens → 2 future tokens
+#   H=4: 4 context tokens → 4 future tokens
+#   H=6: 2 context tokens → 6 future tokens
+#   H=7: 1 context token  → 7 future token   (最远)
 #
-# 实验原理（与 probe 实验的关键区别）：
-#   Probe:   "encoder 产出的特征能不能区分接触/不接触？"  （静态分类）
-#   Rollout: "encoder 产出的特征能不能预测未来物理演化？" （动态预测）
+# [辅助实验] Context Ablation
+#   对每个 horizon，比较含/不含 context 的预测相似度
+#   Δ = WithContext - WithoutContext
+#   Δ > 0 → context 帮助了预测 → model 学到了 dynamics
 #
-# 【核心流程】
-#   1. 用 target_encoder 编码完整视频
-#   2. 以 start_frame_for_prediction 为界切分 context/future
-#   3. 用 predictor (diffusion mode) 预测 future latent
-#   4. CosineSimilarity 度量预测 vs 真实的 future latent
-#   5. 绘制相似度随 rollout 步数的衰减曲线
+# [分组分析] Per-Property
+#   分别对 mass / friction / elasticity / deformability 评估
 #
-# 【四个评估维度】
-#   Predictive Fidelity:    平均 Cosine Similarity
-#   Temporal Stability:     相似度随时间的衰减速度 (Decay)
-#   Dynamics Consistency:   不同物理属性的预测难度对比
-#   Long-horizon Dynamics:  长距离 rollout 后是否 collapse
-#
-# 【需要预测器】
-#   本实验需要包含 predictor 的完整训练检查点。
-#   probe 实验用的 eval-only checkpoint 只有 target_encoder，
-#   无法运行 predictor 模式（会自动 fallback 到 latent consistency）。
-#   请使用训练时保存的完整检查点，其中包含 'predictor' 键。
-#
-# 【使用方式】
+# 启动：
 #   python -m evals.main --fname configs/evals/physion_rollout.yaml --devices cuda:0
 # ============================================================================
 
@@ -40,8 +32,8 @@ resume_checkpoint: false
 # 要评估的属性 (null = 全部 4 种)
 properties: null
 
-# rollout_steps: 预测多少步 (null = 全部 future 帧)
-rollout_steps: null
+# Prediction horizon: 预测的 temporal token 数
+horizons: [1, 2, 3, 4, 5, 6, 7]
 
 # 扩散噪声参数（与训练一致）
 noise_beta:
@@ -50,23 +42,19 @@ noise_beta:
 
 # ---- 数据参数 ----
 data:
-  # Physion++ 测试集 CSV 索引文件
-  dataset: /your_path_to_physion_test_data_csv_index.csv
-
-  # 原始数据根目录（用于读取 .pkl 获取 start_frame_for_prediction）
+  dataset: /your_path_to_physion_test_data_csv.csv
   data_root: /your_path_to_physion_data_root/
-
   frames_per_clip: 16
   frame_step: 4
   clip_duration: null
 
-# ---- 优化/推理参数 ----
+# ---- 推理参数 ----
 optimization:
   resolution: 224
-  batch_size: 1          # rollout 逐视频处理
+  batch_size: 1
   use_bfloat16: false
 
-# ---- 预训练模型参数 ----
+# ---- 预训练模型 ----
 pretrain:
   model_name: vit_huge
   checkpoint_key: target_encoder
@@ -79,5 +67,5 @@ pretrain:
   use_sdpa: true
   patch_size: 16
   folder: /your_path_to_pretrained_models/
-  checkpoint: jepa-latest.pth.tar
+  checkpoint: vith16.pth.tar
   write_tag: physion_rollout
