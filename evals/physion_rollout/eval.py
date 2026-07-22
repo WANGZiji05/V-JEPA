@@ -169,8 +169,12 @@ def main(args_eval, resume_preempt=False):
     if pred_available:
         pred_state = _clean_state_dict(checkpoint['predictor'])
         # 从 state_dict 推断参数
-        pred_embed_dim = pred_state['predictor_proj.weight'].shape[0]
-        pred_depth = sum(1 for k in pred_state if k.startswith('predictor_blocks') and 'attn.proj.weight' in k)
+        # predictor_proj.weight: [encoder_embed, predictor_embed]
+        # predictor_embed.weight: [predictor_embed, encoder_embed]
+        pred_proj_w = pred_state['predictor_proj.weight']
+        pred_embed_dim = pred_proj_w.shape[1]  # 384 (predictor internal dim)
+        pred_depth = sum(1 for k in pred_state if k.startswith('predictor_blocks') and '.attn.proj.weight' in k)
+        num_heads = 12  # default, matches ViT-H
 
         predictor = VisionTransformerPredictor(
             img_size=resolution,
@@ -180,7 +184,7 @@ def main(args_eval, resume_preempt=False):
             embed_dim=encoder.embed_dim,
             predictor_embed_dim=pred_embed_dim,
             depth=pred_depth,
-            num_heads=encoder.num_heads,
+            num_heads=num_heads,
         ).to(device).float()
         predictor.load_state_dict(pred_state, strict=False)
         predictor.eval()
