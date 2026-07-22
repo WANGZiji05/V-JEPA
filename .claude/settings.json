@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"D:/V-JEPA/V-JEPA/evals/physion_rollout\")"
+    ],
+    "additionalDirectories": [
+      "D:\\V-JEPA\\V-JEPA\\evals"
+    ]
+  }
+}
