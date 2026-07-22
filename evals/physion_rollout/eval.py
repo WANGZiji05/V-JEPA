@@ -204,7 +204,9 @@ def _run_rollout(device, encoder, predictor, video_paths,
     """
 
     # 每帧的 token 数
-    grid = resolution // encoder.patch_embed.patch_size[0]
+    patch_sz = encoder.patch_embed.patch_size
+    patch_sz = patch_sz[0] if isinstance(patch_sz, (tuple, list)) else patch_sz
+    grid = resolution // patch_sz
     n_spatial = grid * grid
     n_temporal = num_frames // tubelet_size  # 8
     n_total = n_temporal * n_spatial       # 1568
