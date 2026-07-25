@@ -46,6 +46,7 @@ from torch.nn.parallel import DistributedDataParallel  # 分布式数据并行
 from src.datasets.data_manager import init_data
 from src.masks.random_tube import MaskCollator as TubeMaskCollator
 from src.masks.multiblock3d import MaskCollator as MB3DMaskCollator
+from src.masks.physics_aware import MaskCollator as PAMaskCollator
 from src.masks.utils import apply_masks
 from src.utils.distributed import init_distributed, AllReduce
 from src.utils.logging import (
@@ -269,6 +270,14 @@ def main(args, resume_preempt=False):
     if mask_type == 'multiblock3d':
         logger.info('Initializing basic multi-block mask')
         mask_collator = MB3DMaskCollator(
+            crop_size=crop_size,
+            num_frames=num_frames,
+            patch_size=patch_size,
+            tubelet_size=tubelet_size,
+            cfgs_mask=cfgs_mask)
+    elif mask_type == 'physics_aware':
+        logger.info('Initializing physics-aware mask (PA-Masking)')
+        mask_collator = PAMaskCollator(
             crop_size=crop_size,
             num_frames=num_frames,
             patch_size=patch_size,

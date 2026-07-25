@@ -1,0 +1,103 @@
+# ============================================================================
+# V-JEPA + PA-Masking on Physion++
+# ============================================================================
+# Baseline for testing: same model as physion_vith16.yaml, but with
+# physics-aware masking instead of random multi-block masking.
+#
+# Usage:
+#   python -m app.main --fname configs/pretrain/physion_PA-masking.yaml --devices cuda:0
+# ============================================================================
+
+app: vjepa
+nodes: 1
+tasks_per_node: 1
+tag: physion_pa_masking
+
+data:
+  dataset_type: VideoDataset
+  mask_type: physics_aware       # ← use PA-Masking instead of multiblock3d
+  datasets:
+    - /your_path_to_physion_train_data_csv.csv
+  decode_one_clip: true
+  batch_size: 4                  # smaller batch for single GPU
+  num_clips: 1
+  num_frames: 16
+  tubelet_size: 2
+  sampling_rate: 4
+  crop_size: 224
+  patch_size: 16
+  datasets_weights: null
+
+data_aug:
+  random_resize_aspect_ratio:
+    - 0.75
+    - 1.3333
+  random_resize_scale:
+    - 0.3
+    - 1.0
+  reprob: 0.0
+  auto_augment: false
+  motion_shift: false
+
+logging:
+  folder: /your_path_to_output_checkpoints/
+  write_tag: physion_pa_masking
+
+loss:
+  loss_exp: 1.0
+  reg_coeff: 0.0
+
+# PA-Masking configs (one or more mask strategies)
+# Each entry creates a separate predictor → multi-mask training
+mask:
+  # Strategy 1: High physics importance → fine-grained physics patches
+  - ratio: 0.6             # mask 60% of patches
+    physics_frac: 0.85     # 85% sampled by importance, 15% uniform
+    temp_smooth: 1         # no temporal smoothing (keep frame-level precision)
+    region_grow: 2         # 2 iterations of region dilation
+    contrast_kernel: 3     # 3×3 local contrast kernel
+
+  # Strategy 2: Lower mask ratio → larger context window
+  # - ratio: 0.3
+  #   physics_frac: 0.9
+  #   temp_smooth: 3
+  #   region_grow: 3
+  #   contrast_kernel: 5
+
+meta:
+  seed: 42
+  eval_freq: 5
+  dtype: bfloat16
+  use_sdpa: true
+
+model:
+  model_name: vit_large
+  pred_depth: 12
+  pred_embed_dim: 384
+
+optimization:
+  epochs: 100
+  batch_size: 4
+  start_lr: 0.0002
+  lr: 0.0005
+  final_lr: 1.0e-6
+  weight_decay: 0.04
+  warmup: 10
+  ema:
+    - 0.998
+    - 1.0
+  ipe: 150
+  clip_grad: 3.0
+
+pretrain:
+  folder: null
+  checkpoint: null
+  checkpoint_key: target_encoder
+  model_name: vit_large
+  patch_size: 16
+  tubelet_size: 2
+  frames_per_clip: 16
+  use_sdpa: true
+  use_silu: false
+  tight_silu: false
+  uniform_power: true
