@@ -1,61 +1,20 @@
-# ============================================================================
-# V-JEPA Physion++ 预训练配置
-# ============================================================================
-#
-# 【使用说明】
-#   使用 Physion++ 的 train_data（无标签数据）进行 V-JEPA 自监督预训练。
-#   Physion++ train_data 包含 8000 个视频（4 种属性 × 2000 trials），
-#   适合用于小规模实验或领域适应性预训练（domain adaptation）。
-#
-#   注意：Physion++ 数据量较小（~8000 视频），从头预训练一个大模型可能不够。
-#   建议的使用方式：
-#     1. 从现有的 V-JEPA 大模型检查点开始，用 Physion++ 做继续预训练
-#     2. 或者使用较小的模型（vit_base / vit_large）
-#
-# 【数据准备】
-#   运行 scripts/prepare_physion_data.py 生成训练 CSV：
-#     python scripts/prepare_physion_data.py \
-#         --data_root /path/to/your/physion_data/ \
-#         --splits train \
-#         --videodataset_format \
-#         --output_dir ./physion_csv
-#
-#   注意：预训练使用标准 VideoDataset，需要空格分隔的 2 列 CSV。
-#   使用 --videodataset_format 生成兼容格式 (*_vd.csv)。
-#
-# 【启动训练】
-#   # 本地多 GPU
-#   python -m app.main \
-#       --fname configs/pretrain/physion_vith16.yaml \
-#       --devices cuda:0 cuda:1 cuda:2 cuda:3
-#
-#   # 从已有检查点继续训练
-#   python -m app.main \
-#       --fname configs/pretrain/physion_vith16.yaml \
-#       --devices cuda:0 cuda:1 \
-#       pretrain.folder=/path/to/existing/checkpoint/ \
-#       pretrain.checkpoint=jepa-latest.pth.tar
-# ============================================================================
-
 app: vjepa
 nodes: 1
-tasks_per_node: 4
+tasks_per_node: 1
 tag: physion_pretrain
 
 data:
   dataset_type: VideoDataset
-  # Physion++ train_data CSV 索引文件
   datasets:
-    - /your_path_to_physion_train_data_csv.csv
+    - /research/d7/spc/yrwang5/V-JEPA/V-JEPA/physion_csv/train_data_mass_vd.csv
   decode_one_clip: true
-  batch_size: 8
+  batch_size: 4
   num_clips: 1
   num_frames: 16
   tubelet_size: 2
   sampling_rate: 4
   crop_size: 224
   patch_size: 16
-  # Physion++ 数据量小，不需要多数据集加权
   datasets_weights: null
 
 data_aug:
@@ -70,7 +29,7 @@ data_aug:
   motion_shift: false
 
 logging:
-  folder: /your_path_to_output_checkpoints/
+  folder: /research/d7/spc/yrwang5/V-JEPA/pretrained_models/
   write_tag: physion_pretrain
 
 loss:
@@ -104,20 +63,22 @@ meta:
   eval_freq: 5
   dtype: bfloat16
   use_sdpa: true
+  load_checkpoint: false
 
 model:
-  model_name: vit_large
+  model_name: vit_huge
   pred_depth: 12
   pred_embed_dim: 384
 
 optimization:
-  epochs: 200
-  batch_size: 8
+  epochs: 10
+  batch_size: 4
   start_lr: 0.0002
   lr: 0.000625
   final_lr: 1.0e-6
   weight_decay: 0.04
-  warmup: 40
+  final_weight_decay: 0.04
+  warmup: 5
   ema:
     - 0.998
     - 1.0
@@ -125,10 +86,10 @@ optimization:
   clip_grad: 3.0
 
 pretrain:
-  folder: null
-  checkpoint: null
+  folder: /research/d7/spc/yrwang5/V-JEPA/pretrained_models/
+  checkpoint: vith16.pth.tar
   checkpoint_key: target_encoder
-  model_name: vit_large
+  model_name: vit_huge
   patch_size: 16
   tubelet_size: 2
   frames_per_clip: 16
