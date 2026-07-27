@@ -134,6 +134,7 @@ def init_video_model(
         tubelet_size=tubelet_size,
         uniform_power=uniform_power,
         use_sdpa=use_sdpa,
+        use_checkpoint=True,
     )
     # 用MultiMask包装器包裹（支持多种mask策略）
     encoder = MultiMaskWrapper(encoder)
@@ -150,6 +151,7 @@ def init_video_model(
         predictor_embed_dim=pred_embed_dim,     # 预测器内部使用更小的维度
         depth=pred_depth,
         num_heads=encoder.backbone.num_heads,   # 注意力头数与编码器相同
+        use_checkpoint=True,
         uniform_power=uniform_power,
         num_mask_tokens=num_mask_tokens,
         zero_init_mask_tokens=zero_init_mask_tokens,

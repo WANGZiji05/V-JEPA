@@ -88,9 +88,11 @@ class VisionTransformerPredictor(nn.Module):
         use_mask_tokens=False,     # 是否使用可学习的mask token
         num_mask_tokens=2,         # mask token的种类数
         zero_init_mask_tokens=True,  # mask token是否零初始化
+        use_checkpoint=False,         # 使用 gradient checkpointing
         **kwargs
     ):
         super().__init__()
+        self.use_checkpoint = use_checkpoint
         # 【输入投影】将编码器特征映射到预测器的工作维度
         # 例如：1024维(编码器) → 384维(预测器)
         self.predictor_embed = nn.Linear(embed_dim, predictor_embed_dim, bias=True)
@@ -355,7 +357,11 @@ class VisionTransformerPredictor(nn.Module):
         # 步骤4：通过预测器的Transformer块
         # ------------------------------------------------------------------- #
         for blk in self.predictor_blocks:
-            x = blk(x, mask=masks)
+            if self.use_checkpoint and self.training:
+                x = torch.utils.checkpoint.checkpoint(
+                    blk, x, masks, use_reentrant=False)
+            else:
+                x = blk(x, mask=masks)
         x = self.predictor_norm(x)
 
         # ------------------------------------------------------------------- #

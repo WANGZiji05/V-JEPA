@@ -70,6 +70,7 @@ class VisionTransformer(nn.Module):
         init_std=0.02,          # 权重初始化的标准差
         out_layers=None,        # 需要额外返回中间层输出的层索引列表
         uniform_power=False,    # 是否在3D位置编码中均匀分配频率
+        use_checkpoint=False,   # 使用 gradient checkpointing 节省显存
         **kwargs
     ):
         super().__init__()
@@ -77,6 +78,7 @@ class VisionTransformer(nn.Module):
         self.num_features = self.embed_dim = embed_dim  # 输出特征的维度
         self.num_heads = num_heads
         self.out_layers = out_layers
+        self.use_checkpoint = use_checkpoint
 
         self.input_size = img_size
         self.patch_size = patch_size
@@ -282,9 +284,13 @@ class VisionTransformer(nn.Module):
         # ------------------------------------------------------------------- #
         outs = []
         for i, blk in enumerate(self.blocks):
-            x = blk(x, mask=masks)  # mask可用于控制哪些token之间可以互相注意
+            if self.use_checkpoint and self.training:
+                x = torch.utils.checkpoint.checkpoint(
+                    blk, x, masks, use_reentrant=False)
+            else:
+                x = blk(x, mask=masks)
             if self.out_layers is not None and i in self.out_layers:
-                outs.append(self.norm(x))  # 保存中间层归一化后的输出
+                outs.append(self.norm(x))
 
         if self.out_layers is not None:
             return outs  # 返回多个中间层的输出
