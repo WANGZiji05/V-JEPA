@@ -72,9 +72,27 @@ class MaskCollator(object):
     def __call__(self, batch):
         collated_batch = torch.utils.data.default_collate(batch)
 
+        # Extract video tensor for motion analysis
+        # VideoDataset returns (clips, labels, clip_indices)
+        if isinstance(collated_batch, (tuple, list)):
+            clips = collated_batch[0]
+            if isinstance(clips, list):
+                # Flatten nested list: [[tensor], ...] → tensor [B, C, T, H, W]
+                flat = []
+                for c in clips:
+                    if isinstance(c, list):
+                        flat.extend(c)
+                    else:
+                        flat.append(c)
+                videos = torch.stack(flat, dim=0)
+            else:
+                videos = clips
+        else:
+            videos = collated_batch
+
         collated_masks_pred, collated_masks_enc = [], []
         for mg in self.mask_generators:
-            masks_enc, masks_pred = mg(batch_size=len(batch), videos=collated_batch)
+            masks_enc, masks_pred = mg(batch_size=len(batch), videos=videos)
             collated_masks_enc.append(masks_enc)
             collated_masks_pred.append(masks_pred)
 
