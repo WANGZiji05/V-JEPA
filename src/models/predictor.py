@@ -359,7 +359,7 @@ class VisionTransformerPredictor(nn.Module):
         for blk in self.predictor_blocks:
             if self.use_checkpoint and self.training:
                 x = torch.utils.checkpoint.checkpoint(
-                    blk, x, masks, use_reentrant=False)
+                    blk, x, False, masks, use_reentrant=False)
             else:
                 x = blk(x, mask=masks)
         x = self.predictor_norm(x)

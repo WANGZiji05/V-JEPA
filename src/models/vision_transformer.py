@@ -286,7 +286,7 @@ class VisionTransformer(nn.Module):
         for i, blk in enumerate(self.blocks):
             if self.use_checkpoint and self.training:
                 x = torch.utils.checkpoint.checkpoint(
-                    blk, x, masks, use_reentrant=False)
+                    blk, x, False, masks, use_reentrant=False)
             else:
                 x = blk(x, mask=masks)
             if self.out_layers is not None and i in self.out_layers:
