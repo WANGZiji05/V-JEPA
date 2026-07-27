@@ -85,6 +85,9 @@ class MaskCollator(object):
                     else:
                         flat.append(c)
                 videos = torch.stack(flat, dim=0)
+                # Squeeze extra dim from default_collate if present
+                if videos.dim() == 6:
+                    videos = videos.squeeze(1)  # [B,1,C,T,H,W] → [B,C,T,H,W]
             else:
                 videos = clips
         else:
