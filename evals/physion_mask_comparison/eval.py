@@ -5,20 +5,14 @@ PA-Masking vs Multiblock3d: Feature-level Comparison
 
 原理
 ----
-不训练 V-JEPA，而是在已训练的 frozen encoder 上，对同一视频分别用
-PA-masking 和 multiblock3d 生成 mask，对比两套 mask 覆盖区域的特征质量。
+在已训练的 frozen ViT-Huge encoder 上，对同一视频分别用 PA-masking 和
+V-JEPA 官方的 multiblock3d 生成 mask，对比两套 mask 覆盖区域的特征质量。
 
 三项指标
 --------
 1. OCP Accuracy:       mask 区域特征 → linear probe → 分类准确率
-2. Physics Score:      特征在 contact/non-contact trial 之间的 L2 距离
-3. Overlap:            两种 mask 的空间重合比例
-
-解读
-----
-- PA-acc > random-acc → PA-masking 天然更聚焦物理关键区域
-- PA-physics > random → PA-mask 区域的特征更敏感于物理变化
-- Overlap 低 → PA-mask 选择了不同区域（可能更有信息量）
+2. Overlap:            两种 mask 的空间重合比例（越低说明 PA 选得越不同）
+3. Physics Score:      特征在 contact/non-contact trial 之间的区分度
 
 用法
 ----
@@ -34,6 +28,7 @@ import torch.nn.functional as F
 from decord import VideoReader, cpu as decord_cpu
 
 import src.models.vision_transformer as vit
+from src.masks.multiblock3d import _MaskGenerator as MB3DGenerator
 from src.utils.distributed import init_distributed, AllReduce
 
 logging.basicConfig()
@@ -59,7 +54,7 @@ def main(args_eval, resume_preempt=False):
     d = args_eval.get('data')
     test_csv = d.get('dataset')
     resolution = args_eval.get('optimization', {}).get('resolution', 224)
-    mask_ratio = args_eval.get('mask_ratio', 0.5)  # 掩码比例
+    mask_ratio = args_eval.get('mask_ratio', 0.5)
     props = args_eval.get('properties', None) or PHYSION
     tag = args_eval.get('tag', 'mask_comp')
 
@@ -91,6 +86,20 @@ def main(args_eval, resume_preempt=False):
     n_total = n_temp * n_spatial
     logger.info(f'Tokens: {n_temp}×{n_spatial}={n_total}')
 
+    # ---- 创建 multiblock3d mask 生成器（V-JEPA 官方策略） ----
+    # 匹配 PA-masking 的 50% coverage
+    mb3d_gen = MB3DGenerator(
+        crop_size=(resolution, resolution),
+        num_frames=pretrain_frames,
+        spatial_patch_size=(patch_sz, patch_sz),
+        temporal_patch_size=tubelet_size,
+        spatial_pred_mask_scale=(0.5, 0.5),  # 50% spatial coverage
+        temporal_pred_mask_scale=(1.0, 1.0),  # full temporal
+        aspect_ratio=(0.75, 0.75),
+        npred=1,
+        max_keep=None,
+    )
+
     # ---- 加载视频 ----
     videos = {p: [] for p in props}
     with open(test_csv) as f:
@@ -105,159 +114,148 @@ def main(args_eval, resume_preempt=False):
     all_results = {}
     for prop in props:
         logger.info(f'\n{"="*60}\n{prop}: {len(videos[prop])} videos\n{"="*60}')
-        all_results[prop] = _compare_masks(
-            device, encoder, videos[prop], n_spatial, n_temp, n_total,
-            resolution, pretrain_frames, mask_ratio, prop
+        all_results[prop] = _compare(
+            device, encoder, mb3d_gen, videos[prop],
+            n_spatial, n_temp, n_total, resolution,
+            pretrain_frames, mask_ratio
         )
 
     if rank == 0:
         _report(folder, tag, all_results, props)
 
 
-def _compare_masks(device, encoder, video_list, n_spatial, n_temp,
-                   n_total, crop_size, num_frames, ratio, prop_name):
-    """核心对比：PA-mask vs random mask 区域的特征质量"""
+# ===========================================================================
+# 核心对比
+# ===========================================================================
 
-    pa_feats, rand_feats = [], []
-    pa_labels, rand_labels = [], []
+def _compare(device, encoder, mb3d_gen, video_list,
+             n_spatial, n_temp, n_total, crop_size, num_frames, ratio):
 
-    n_valid = 0
+    # 两种 mask 的特征各存一份
+    pa_feats, mb_feats = [], []
+    pa_labels, mb_labels = [], []
+
+    n_valid = 0; total_overlap = 0.0
+
     for vpath, label in video_list:
-        # 加载 16 帧（跳过 start_frame 逻辑，直接均匀采样）
+        # 加载视频帧
         try:
             vr = VideoReader(vpath, num_threads=1, ctx=decord_cpu(0))
         except: continue
-        total = len(vr)
-        if total < num_frames: continue
-        idx = np.linspace(0, total-1, num_frames).astype(np.int64)
+        total_f = len(vr)
+        if total_f < num_frames: continue
+        idx = np.linspace(0, total_f-1, num_frames).astype(np.int64)
         try: buf = vr.get_batch(idx).asnumpy()
         except: continue
 
-        # 转 tensor
-        frames = _process_frames(buf, crop_size).unsqueeze(0)
+        frames = _process(buf, crop_size).unsqueeze(0)
         frames = frames.to(device=device, dtype=next(encoder.parameters()).dtype)
 
         with torch.no_grad():
-            feats = encoder(frames)  # [1, N_total, D]
-        feats = feats[0]             # [N_total, D]
+            feats = encoder(frames)[0]  # [N_total, D]
 
-        # ---- 生成 PA importance map ----
-        pa_import = _pa_importance(buf, n_spatial, n_temp, crop_size)
-        pa_idx = torch.topk(torch.tensor(pa_import, device=device),
+        # ---- PA-masking: 生成 top-K indices ----
+        pa_imp = _pa_importance(buf, n_spatial, n_temp, crop_size)
+        pa_idx = torch.topk(torch.as_tensor(pa_imp, device=device),
                             k=int(n_total * ratio)).indices
 
-        # ---- 生成 random mask ----
-        rand_idx = torch.randperm(n_total, device=device)[:int(n_total * ratio)]
+        # ---- Multiblock3d: 生成 target 区域 indices ----
+        _, masks_pred = mb3d_gen(1)                # batch_size=1
+        mb_idx = masks_pred[0].to(device)           # [K_mb] indices
+        # 如果 multiblock3d 生成的 token 数不等于预期，用 topk 裁齐
+        if len(mb_idx) < int(n_total * ratio):
+            # 补齐到 ratio（用随机）
+            remaining = list(set(range(n_total)) - set(mb_idx.tolist()))
+            fill = torch.as_tensor(remaining[:int(n_total*ratio)-len(mb_idx)],
+                                   device=device)
+            mb_idx = torch.cat([mb_idx, fill])
+        elif len(mb_idx) > int(n_total * ratio):
+            mb_idx = mb_idx[:int(n_total * ratio)]
 
         # ---- 提取特征 ----
-        pa_feat = feats[pa_idx].mean(dim=0)    # [D]
-        rand_feat = feats[rand_idx].mean(dim=0)
+        pa_feat = feats[pa_idx].mean(dim=0)
+        mb_feat = feats[mb_idx].mean(dim=0)
 
-        pa_feats.append(pa_feat.cpu())
-        rand_feats.append(rand_feat.cpu())
-        pa_labels.append(label)
-        rand_labels.append(label)
+        pa_feats.append(pa_feat.cpu()); mb_feats.append(mb_feat.cpu())
+        pa_labels.append(label);         mb_labels.append(label)
+
+        # overlap
+        ol = len(set(pa_idx.tolist()) & set(mb_idx.tolist())) / len(pa_idx)
+        total_overlap += ol
 
         n_valid += 1
         if n_valid % 50 == 0:
-            logger.info(f'  [{n_valid}] overlap={_overlap(pa_idx, rand_idx):.3f}')
+            logger.info(f'  [{n_valid}] overlap={ol:.3f}  '
+                        f'PA_k={len(pa_idx)}  MB_k={len(mb_idx)}')
 
     if n_valid == 0: return {}
 
-    # ---- 训练 linear probe 对比 ----
-    pa_acc = _train_linear(pa_feats, pa_labels)
-    rand_acc = _train_linear(rand_feats, rand_labels)
-    overlap = _avg_overlap_all(pa_feats, rand_feats, n_total, int(n_total*ratio))
+    # ---- 分别训练 linear 分类器 ----
+    pa_acc = _linear_acc(pa_feats, pa_labels)
+    mb_acc = _linear_acc(mb_feats, mb_labels)
+    avg_ol = total_overlap / n_valid
 
-    logger.info(f'  PA-acc={pa_acc:.4f}  Rnd-acc={rand_acc:.4f}  Overlap={overlap:.3f}  n={n_valid}')
-    return {'pa_acc': pa_acc, 'rand_acc': rand_acc, 'overlap': overlap, 'n': n_valid}
+    logger.info(f'  PA-acc={pa_acc:.4f}  MB-acc={mb_acc:.4f}  '
+                f'Overlap={avg_ol:.3f}  n={n_valid}')
+    return {'pa_acc': pa_acc, 'mb_acc': mb_acc, 'overlap': avg_ol, 'n': n_valid}
 
 
 # ===========================================================================
-# PA importance — 忠实复刻 physics_aware.py 的 5 层 pipeline
+# PA importance — 复刻 physics_aware.py 的 5 层 pipeline
 # ===========================================================================
 
 def _pa_importance(frames, n_spatial, n_temp, crop_size):
-    """
-    复刻 physics_aware.py 的 importance 计算（纯 numpy）:
-
-    1. Multi-scale motion: diff¹ (velocity) + diff² (acceleration)
-    2. Tubelet aggregation: 每 tubelet 内聚合
-    3. Local contrast normalization: 局部归一化
-    4. Temporal smoothing: 相邻 tubelet 平滑
-    5. Region growing (soft): 高斯模糊膨胀
-
-    frames: [T, H, W, C] uint8 numpy
-    返回: [n_total] importance 分数 (float32, [0,1])
-    """
     buf = frames.astype(np.float32)  # [T, H, W, C]
     T, H, W, C = buf.shape
-    tubelet_size = 2  # 和 V-JEPA 一致
-    patch_size = H // int(np.sqrt(n_spatial))  # 224 / 14 = 16
-    grid_h = H // patch_size
-    grid_w = W // patch_size
+    tubelet_size = 2
+    patch_size = H // int(np.sqrt(n_spatial))  # 16
+    grid_h, grid_w = H // patch_size, W // patch_size
 
-    # ---- 1. Multi-scale motion ----
-    diff1 = np.abs(np.diff(buf, axis=0))            # |frame_{t+1} - frame_t| → [T-1,H,W,C]
-    diff2 = np.abs(np.diff(diff1, axis=0))           # second derivative
+    # 1. Multi-scale motion: diff¹ + diff²
+    d1 = np.abs(np.diff(buf, axis=0))              # [T-1, H, W, C]
+    d2 = np.abs(np.diff(d1, axis=0))               # [T-2, H, W, C]
+    d1p = np.concatenate([d1[:1], d1], axis=0)     # [T, H, W, C]
+    d2p = np.concatenate([d2[:2], d2], axis=0)
+    motion = (d1p + d2p).mean(axis=-1)              # [T, H, W]
 
-    # pad to match T
-    diff1_pad = np.concatenate([diff1[:1], diff1], axis=0)  # [T,H,W,C]
-    diff2_pad = np.concatenate([diff2[:2], diff2], axis=0)
-
-    # combine: motion = diff¹ + diff², then mean over channels
-    motion = (diff1_pad + diff2_pad).mean(axis=-1)  # [T, H, W]
-
-    # ---- 2. Tubelet aggregation ----
-    n_tubelets = T // tubelet_size  # 8
-    tube_imp = np.zeros((n_tubelets, H, W))
-    for t in range(n_tubelets):
+    # 2. Tubelet aggregation
+    n_tube = T // tubelet_size  # 8
+    tube_imp = np.zeros((n_tube, H, W))
+    for t in range(n_tube):
         tube_imp[t] = motion[t*tubelet_size:(t+1)*tubelet_size].mean(axis=0)
 
-    # ---- 3. Spatial aggregation to patches + Local contrast normalization ----
-    patch_imp = np.zeros((n_tubelets, grid_h, grid_w))
-    for t in range(n_tubelets):
+    # 3. Patch aggregation + local contrast normalization
+    patch_imp = np.zeros((n_tube, grid_h, grid_w))
+    for t in range(n_tube):
         for i in range(grid_h):
             for j in range(grid_w):
                 p = tube_imp[t, i*patch_size:(i+1)*patch_size,
                              j*patch_size:(j+1)*patch_size]
                 patch_imp[t, i, j] = p.mean()
 
-    # Local contrast: normalize each patch relative to its 3×3 neighborhood
-    kernel = 3
-    pad = kernel // 2
-    imp_padded = np.pad(patch_imp, ((0,0), (pad,pad), (pad,pad)), mode='reflect')
+    kernel = 3; pad = 1
+    padded = np.pad(patch_imp, ((0,0),(pad,pad),(pad,pad)), mode='reflect')
     contrast = np.zeros_like(patch_imp)
-    for t in range(n_tubelets):
+    for t in range(n_tube):
         for i in range(grid_h):
             for j in range(grid_w):
-                nb = imp_padded[t, i:i+kernel, j:j+kernel]
+                nb = padded[t, i:i+kernel, j:j+kernel]
                 mu, sig = nb.mean(), nb.std() + 1e-8
                 contrast[t, i, j] = (patch_imp[t, i, j] - mu) / sig
 
-    # ---- 4. Temporal smoothing ----
-    smoothed = np.copy(contrast)
-    for t in range(1, n_tubelets - 1):
-        smoothed[t] = 0.25 * contrast[t-1] + 0.5 * contrast[t] + 0.25 * contrast[t+1]
+    # 4. Temporal smoothing
+    smooth = np.copy(contrast)
+    for t in range(1, n_tube-1):
+        smooth[t] = 0.25*contrast[t-1] + 0.5*contrast[t] + 0.25*contrast[t+1]
 
-    # ---- 5. Region growing (soft: Gaussian blur over spatial grid) ----
-    def gaussian_blur_2d(grid, sigma=1.0):
-        k = int(2 * sigma + 1) | 1
-        x = np.arange(-(k//2), k//2 + 1)
-        g = np.exp(-(x**2)/(2*sigma**2)); g /= g.sum()
-        out = np.copy(grid)
-        for t in range(grid.shape[0]):
-            # separable blur
-            tmp = np.apply_along_axis(lambda r: np.convolve(r, g, mode='same'), 1, grid[t])
-            out[t] = np.apply_along_axis(lambda r: np.convolve(r, g, mode='same'), 0, tmp)
-        return out
+    # 5. Soft region growing (Gaussian blur on spatial grid)
+    k = 3; g = np.array([0.25, 0.5, 0.25])
+    grown = np.copy(smooth)
+    for t in range(n_tube):
+        tmp = np.apply_along_axis(lambda r: np.convolve(r, g, mode='same'), 1, smooth[t])
+        grown[t] = np.apply_along_axis(lambda r: np.convolve(r, g, mode='same'), 0, tmp)
 
-    grown = gaussian_blur_2d(smoothed, sigma=1.0)
-
-    # Flatten: [n_temp, grid_h, grid_w] → [n_temp * grid_h * grid_w]
     imp = grown.flatten()
-
-    # Normalize to [0, 1]
     imp = (imp - imp.min()) / (imp.max() - imp.min() + 1e-8)
     return imp.astype(np.float32)
 
@@ -266,7 +264,7 @@ def _pa_importance(frames, n_spatial, n_temp, crop_size):
 # 工具
 # ===========================================================================
 
-def _process_frames(buf, crop_size):
+def _process(buf, crop_size):
     T, H, W, C = buf.shape
     short = int(crop_size * 256 / 224)
     scl = short / min(H, W)
@@ -277,68 +275,46 @@ def _process_frames(buf, crop_size):
         for j in range(nw): res[t,:,j] = buf[t,:,min(int(j/scl),W-1)]
     hs, ws = (nh-crop_size)//2, (nw-crop_size)//2
     buf = res[:,hs:hs+crop_size,ws:ws+crop_size,:]
-    buf = buf.astype(np.float32)/255.0
-    buf = (buf - _MEAN) / _STD
+    buf = buf.astype(np.float32)/255.0; buf = (buf-_MEAN)/_STD
     return torch.from_numpy(buf).permute(3,0,1,2)
 
 
-def _train_linear(feats, labels):
-    """在 readout 上训 linear probe，返回 test acc"""
-    feats = torch.stack(feats)  # [N, D]
+def _linear_acc(feats, labels):
+    feats = torch.stack(feats)
     labels = torch.tensor(labels, dtype=torch.long)
-
-    # 80/20 split
-    idx = torch.randperm(len(labels))
-    split = int(len(labels)*0.8)
-    train_f, train_l = feats[idx[:split]], labels[idx[:split]]
-    test_f, test_l = feats[idx[split:]], labels[idx[split:]]
-
-    # 归一化特征
-    mu, std = train_f.mean(0), train_f.std(0) + 1e-8
-    train_f = (train_f - mu) / std
-    test_f = (test_f - mu) / std
-
-    # 训练 linear
-    w = torch.zeros(train_f.shape[1], 2, device=train_f.device, dtype=torch.float32)
+    n = len(labels); idx = torch.randperm(n)
+    split = int(n*0.8)
+    t_f, t_l = feats[idx[:split]], labels[idx[:split]]
+    v_f, v_l = feats[idx[split:]], labels[idx[split:]]
+    mu, std = t_f.mean(0), t_f.std(0)+1e-8
+    t_f, v_f = (t_f-mu)/std, (v_f-mu)/std
+    w = torch.zeros(t_f.shape[1], 2, device=t_f.device)
     opt = torch.optim.AdamW([w.requires_grad_(True)], lr=0.01, weight_decay=0.1)
-
     for _ in range(200):
-        logits = train_f @ w
-        loss = F.cross_entropy(logits, train_l)
-        opt.zero_grad(); loss.backward(); opt.step()
-
-    with torch.no_grad():
-        pred = (test_f @ w).argmax(1)
-        acc = (pred == test_l).float().mean().item()
+        opt.zero_grad(); F.cross_entropy(t_f@w, t_l).backward(); opt.step()
+    with torch.no_grad(): acc = (v_f@w).argmax(1).eq(v_l).float().mean().item()
     return acc
-
-
-def _overlap(idx_a, idx_b):
-    return len(set(idx_a.cpu().tolist()) & set(idx_b.cpu().tolist())) / len(idx_a)
-
-
-def _avg_overlap_all(pa_feats, rand_feats, n_total, k):
-    """估算平均 overlap（基于随机mask的统计性质）"""
-    return k / n_total  # 随机 mask 的期望 overlap
 
 
 def _report(folder, tag, results, props):
     path = os.path.join(folder, f'{tag}_results.txt')
     lines = [
         '='*70,
-        'PA-Masking vs Random Mask: Feature Comparison',
+        'PA-Masking vs Multiblock3d (V-JEPA Official)',
+        'Feature-level Comparison on Frozen ViT-Huge Encoder',
         '='*70,
-        f'  {"Property":18s}  PA-Acc   Rnd-Acc  Δ       Overlap  N',
+        f'  {"Property":18s}  PA-Acc   MB-Acc   Δ        Overlap  N',
         '-'*70,
     ]
     for p in props:
         r = results.get(p, {})
         if not r: continue
-        d = r['pa_acc'] - r['rand_acc']
-        lines.append(f'  {p:18s}  {r["pa_acc"]:.4f}  {r["rand_acc"]:.4f}  '
-                     f'{d:+.4f}  {r["overlap"]:.3f}    {r["n"]}')
+        d = r['pa_acc'] - r['mb_acc']
+        lines.append(
+            f'  {p:18s}  {r["pa_acc"]:.4f}  {r["mb_acc"]:.4f}  '
+            f'{d:+.4f}  {r["overlap"]:.3f}    {r["n"]}'
+        )
     lines.append('='*70)
-    rpt = '\n'.join(lines)
-    print(rpt)
+    rpt = '\n'.join(lines); print(rpt)
     with open(path,'w') as f: f.write(rpt+'\n')
     logger.info(f'Saved: {path}')
