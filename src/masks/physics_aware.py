@@ -97,12 +97,18 @@ class _PhysicsMaskGenerator:
         if not isinstance(crop_size, tuple):
             crop_size = (crop_size,) * 2
 
-        self.height = crop_size[0] // spatial_patch_size     # e.g. 14
+        if isinstance(crop_size, (tuple, list)):
+            self.height = crop_size[0] // spatial_patch_size
+        else:
+            self.height = crop_size // spatial_patch_size
         self.width = crop_size[1] // spatial_patch_size      # e.g. 14
         self.duration = num_frames // temporal_patch_size    # e.g. 8
         self.num_patches = self.duration * self.height * self.width  # e.g. 1568
 
-        self.spatial_patch_size = spatial_patch_size[0]  # 16
+        if isinstance(spatial_patch_size, (tuple, list)):
+            self.spatial_patch_size = spatial_patch_size[0]
+        else:
+            self.spatial_patch_size = spatial_patch_size
         self.temporal_patch_size = temporal_patch_size    # 2
         self.num_frames = num_frames                      # 16
 
