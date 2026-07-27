@@ -208,6 +208,7 @@ def init_opt(
     betas=(0.9, 0.999),    # AdamW的beta参数
     eps=1e-8,              # AdamW的epsilon
     zero_init_bias_wd=True,  # 是否对bias参数禁用权重衰减
+    optimizer_type='adamw',   # 'adamw' or 'sgd'
 ):
     """
     初始化优化器和学习率调度器
@@ -249,8 +250,12 @@ def init_opt(
         },
     ]
 
-    logger.info('Using AdamW')
-    optimizer = torch.optim.AdamW(param_groups, betas=betas, eps=eps)
+    if optimizer_type == 'sgd':
+        logger.info('Using SGD (low memory)')
+        optimizer = torch.optim.SGD(param_groups, lr=0.001, momentum=0.9)
+    else:
+        logger.info('Using AdamW')
+        optimizer = torch.optim.AdamW(param_groups, betas=betas, eps=eps)
 
     # 余弦学习率调度（带warmup）
     scheduler = WarmupCosineSchedule(

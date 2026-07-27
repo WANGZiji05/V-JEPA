@@ -178,6 +178,7 @@ def main(args, resume_preempt=False):
     ema = cfgs_opt.get('ema')                 # EMA动量范围 [start, end]
     betas = cfgs_opt.get('betas', (0.9, 0.999))  # AdamW的beta参数
     eps = cfgs_opt.get('eps', 1.e-8)
+    optimizer_type = cfgs_opt.get('optimizer_type', 'adamw')
 
     # -- LOGGING（日志路径设置）
     cfgs_logging = args.get('logging')
@@ -349,7 +350,8 @@ def main(args, resume_preempt=False):
         ipe_scale=ipe_scale,
         mixed_precision=mixed_precision,
         betas=betas,
-        eps=eps)
+        eps=eps,
+        optimizer_type=optimizer_type)
 
     # 用DistributedDataParallel包装模型（支持多GPU训练）
     encoder = DistributedDataParallel(encoder, static_graph=True)
