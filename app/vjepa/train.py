@@ -604,7 +604,10 @@ def main(args, resume_preempt=False):
                 grad_stats_pred = grad_logger(predictor.named_parameters())
                 grad_stats_pred.global_norm = float(_pred_norm)
                 optimizer.zero_grad()  # 清空梯度
-                optim_stats = adamw_logger(optimizer)  # AdamW状态统计
+                if optimizer_type == 'adamw':
+                    optim_stats = adamw_logger(optimizer)
+                else:
+                    optim_stats = None
 
                 # ---- 步骤3: EMA更新目标编码器 ----
                 # target_param = m * target_param + (1-m) * encoder_param
