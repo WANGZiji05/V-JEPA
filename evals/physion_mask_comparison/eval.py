@@ -91,11 +91,11 @@ def main(args_eval, resume_preempt=False):
     mb3d_gen = MB3DGenerator(
         crop_size=(resolution, resolution),
         num_frames=pretrain_frames,
-        spatial_patch_size=(patch_sz, patch_sz),
+        spatial_patch_size=patch_sz,
         temporal_patch_size=tubelet_size,
         spatial_pred_mask_scale=(0.5, 0.5),  # 50% spatial coverage
         temporal_pred_mask_scale=(1.0, 1.0),  # full temporal
-        aspect_ratio=(0.75, 0.75),
+        aspect_ratio=(0.75, 1.5),
         npred=1,
         max_keep=None,
     )
