@@ -1,0 +1,37 @@
+# PA-Masking vs Multiblock3d: Feature-level Comparison
+#
+# 不需训练，纯分析实验。
+# 在已训练的 frozen encoder 上对比两种 mask 的特征质量。
+
+nodes: 1
+tasks_per_node: 1
+tag: mask_comparison
+eval_name: physion_mask_comparison
+resume_checkpoint: false
+
+properties: null         # null = all 4
+mask_ratio: 0.5           # mask 比例（一半 patches）
+
+noise_beta: [0.5, 1.0]
+
+data:
+  dataset: /research/d7/spc/yrwang5/V-JEPA/V-JEPA/physion_csv/test_data.csv
+
+optimization:
+  resolution: 224
+  batch_size: 1
+  use_bfloat16: false
+
+pretrain:
+  model_name: vit_huge
+  checkpoint_key: target_encoder
+  folder: /research/d7/spc/yrwang5/V-JEPA/pretrained_models/
+  checkpoint: vith16.pth.tar
+  frames_per_clip: 16
+  tubelet_size: 2
+  use_sdpa: true
+  use_silu: false
+  tight_silu: false
+  uniform_power: true
+  patch_size: 16
+  write_tag: mask_comparison
