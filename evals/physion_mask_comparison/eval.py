@@ -174,37 +174,90 @@ def _compare_masks(device, encoder, video_list, n_spatial, n_temp,
 
 
 # ===========================================================================
-# PA importance 计算（复用 physics_aware.py 的逻辑，纯 numpy）
+# PA importance — 忠实复刻 physics_aware.py 的 5 层 pipeline
 # ===========================================================================
 
 def _pa_importance(frames, n_spatial, n_temp, crop_size):
     """
-    计算每帧相邻帧的像素差异（diff¹），聚合到 patch 级别。
-    返回: [n_total] importance 分数
+    复刻 physics_aware.py 的 importance 计算（纯 numpy）:
+
+    1. Multi-scale motion: diff¹ (velocity) + diff² (acceleration)
+    2. Tubelet aggregation: 每 tubelet 内聚合
+    3. Local contrast normalization: 局部归一化
+    4. Temporal smoothing: 相邻 tubelet 平滑
+    5. Region growing (soft): 高斯模糊膨胀
+
+    frames: [T, H, W, C] uint8 numpy
+    返回: [n_total] importance 分数 (float32, [0,1])
     """
     buf = frames.astype(np.float32)  # [T, H, W, C]
     T, H, W, C = buf.shape
+    tubelet_size = 2  # 和 V-JEPA 一致
+    patch_size = H // int(np.sqrt(n_spatial))  # 224 / 14 = 16
+    grid_h = H // patch_size
+    grid_w = W // patch_size
 
-    # motion = |frame_{t+1} - frame_t| 逐像素
-    diff = np.abs(np.diff(buf, axis=0)).mean(axis=-1)  # [T-1, H, W]
-    # pad 第一帧
-    diff = np.concatenate([diff[:1], diff], axis=0)  # [T, H, W]
+    # ---- 1. Multi-scale motion ----
+    diff1 = np.abs(np.diff(buf, axis=0))            # |frame_{t+1} - frame_t| → [T-1,H,W,C]
+    diff2 = np.abs(np.diff(diff1, axis=0))           # second derivative
 
-    # 聚合成 patch
-    patch_h = H // int(np.sqrt(n_spatial))
-    patch_w = W // int(np.sqrt(n_spatial))
-    grid_h = H // patch_h
-    grid_w = W // patch_w
+    # pad to match T
+    diff1_pad = np.concatenate([diff1[:1], diff1], axis=0)  # [T,H,W,C]
+    diff2_pad = np.concatenate([diff2[:2], diff2], axis=0)
 
-    importance = np.zeros((n_temp, grid_h, grid_w))
-    for t in range(T):
+    # combine: motion = diff¹ + diff², then mean over channels
+    motion = (diff1_pad + diff2_pad).mean(axis=-1)  # [T, H, W]
+
+    # ---- 2. Tubelet aggregation ----
+    n_tubelets = T // tubelet_size  # 8
+    tube_imp = np.zeros((n_tubelets, H, W))
+    for t in range(n_tubelets):
+        tube_imp[t] = motion[t*tubelet_size:(t+1)*tubelet_size].mean(axis=0)
+
+    # ---- 3. Spatial aggregation to patches + Local contrast normalization ----
+    patch_imp = np.zeros((n_tubelets, grid_h, grid_w))
+    for t in range(n_tubelets):
         for i in range(grid_h):
             for j in range(grid_w):
-                importance[t // (T // n_temp), i, j] += \
-                    diff[t, i*patch_h:(i+1)*patch_h, j*patch_w:(j+1)*patch_w].mean()
+                p = tube_imp[t, i*patch_size:(i+1)*patch_size,
+                             j*patch_size:(j+1)*patch_size]
+                patch_imp[t, i, j] = p.mean()
 
-    # 归一化到 [0, 1]
-    imp = importance.flatten()
+    # Local contrast: normalize each patch relative to its 3×3 neighborhood
+    kernel = 3
+    pad = kernel // 2
+    imp_padded = np.pad(patch_imp, ((0,0), (pad,pad), (pad,pad)), mode='reflect')
+    contrast = np.zeros_like(patch_imp)
+    for t in range(n_tubelets):
+        for i in range(grid_h):
+            for j in range(grid_w):
+                nb = imp_padded[t, i:i+kernel, j:j+kernel]
+                mu, sig = nb.mean(), nb.std() + 1e-8
+                contrast[t, i, j] = (patch_imp[t, i, j] - mu) / sig
+
+    # ---- 4. Temporal smoothing ----
+    smoothed = np.copy(contrast)
+    for t in range(1, n_tubelets - 1):
+        smoothed[t] = 0.25 * contrast[t-1] + 0.5 * contrast[t] + 0.25 * contrast[t+1]
+
+    # ---- 5. Region growing (soft: Gaussian blur over spatial grid) ----
+    def gaussian_blur_2d(grid, sigma=1.0):
+        k = int(2 * sigma + 1) | 1
+        x = np.arange(-(k//2), k//2 + 1)
+        g = np.exp(-(x**2)/(2*sigma**2)); g /= g.sum()
+        out = np.copy(grid)
+        for t in range(grid.shape[0]):
+            # separable blur
+            tmp = np.apply_along_axis(lambda r: np.convolve(r, g, mode='same'), 1, grid[t])
+            out[t] = np.apply_along_axis(lambda r: np.convolve(r, g, mode='same'), 0, tmp)
+        return out
+
+    grown = gaussian_blur_2d(smoothed, sigma=1.0)
+
+    # Flatten: [n_temp, grid_h, grid_w] → [n_temp * grid_h * grid_w]
+    imp = grown.flatten()
+
+    # Normalize to [0, 1]
     imp = (imp - imp.min()) / (imp.max() - imp.min() + 1e-8)
     return imp.astype(np.float32)
 
