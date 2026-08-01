@@ -224,46 +224,57 @@ def main():
         hamjepa_model.action_offsets.data = adapter['action_offsets'].to(device)
         hamjepa_model.reward_predictor.load_state_dict(adapter['reward_predictor'])
 
-    # ── Run experiments ──
-    all_results = []
+    # ── Resume support ──
+    import json as _json
+    results_path = args.output.replace('.txt', '.json')
+    saved = {}
+    if os.path.exists(results_path):
+        with open(results_path, 'r') as f:
+            saved = _json.load(f)
+        print(f"Resume: {len(saved.get('groups', []))} groups already completed")
 
-    # Random baseline (no world model)
-    print("\n" + "="*60)
-    print("Random Action Baseline")
-    print("="*60)
-    random_rate = run_random_baseline(num_episodes=args.episodes, device=device)
+    all_results = saved.get('groups', [])
+    completed_labels = {r['label'] for r in all_results}
 
-    # Group 1: V-JEPA, default gravity
-    all_results.append(run_experiment_group(
-        vjepa_model, gravity=1.0, num_episodes=args.episodes,
-        label="V-JEPA (1× gravity)", device=device,
-        cem_horizon=args.cem_horizon, cem_population=args.cem_population,
-        cem_iter=args.cem_iter,
-    ))
+    def save_progress():
+        with open(results_path, 'w') as f:
+            _json.dump({
+                'random_baseline': random_rate,
+                'groups': all_results,
+            }, f, indent=2)
 
-    # Group 2: HamJEPA, default gravity
-    all_results.append(run_experiment_group(
-        hamjepa_model, gravity=1.0, num_episodes=args.episodes,
-        label="HamJEPA (1× gravity)", device=device,
-        cem_horizon=args.cem_horizon, cem_population=args.cem_population,
-        cem_iter=args.cem_iter,
-    ))
+    # ── Random baseline (no world model) ──
+    if 'random_baseline' in saved:
+        random_rate = saved['random_baseline']
+        print(f"\nRandom baseline (cached): {random_rate:.2%}")
+    else:
+        print("\n" + "="*60)
+        print("Random Action Baseline")
+        print("="*60)
+        random_rate = run_random_baseline(num_episodes=args.episodes, device=device)
+        save_progress()
 
-    # Group 3: V-JEPA, mutant gravity
-    all_results.append(run_experiment_group(
-        vjepa_model, gravity=2.0, num_episodes=args.episodes,
-        label="V-JEPA (2× gravity)", device=device,
-        cem_horizon=args.cem_horizon, cem_population=args.cem_population,
-        cem_iter=args.cem_iter,
-    ))
+    # ── Experiment groups ──
+    groups = [
+        (vjepa_model, 1.0, "V-JEPA (1× gravity)"),
+        (hamjepa_model, 1.0, "HamJEPA (1× gravity)"),
+        (vjepa_model, 2.0, "V-JEPA (2× gravity)"),
+        (hamjepa_model, 2.0, "HamJEPA (2× gravity)"),
+    ]
 
-    # Group 4: HamJEPA, mutant gravity
-    all_results.append(run_experiment_group(
-        hamjepa_model, gravity=2.0, num_episodes=args.episodes,
-        label="HamJEPA (2× gravity)", device=device,
-        cem_horizon=args.cem_horizon, cem_population=args.cem_population,
-        cem_iter=args.cem_iter,
-    ))
+    for model, gravity, label in groups:
+        if label in completed_labels:
+            print(f"\nSkipping (already done): {label}")
+            continue
+
+        result = run_experiment_group(
+            model, gravity=gravity, num_episodes=args.episodes,
+            label=label, device=device,
+            cem_horizon=args.cem_horizon, cem_population=args.cem_population,
+            cem_iter=args.cem_iter,
+        )
+        all_results.append(result)
+        save_progress()
 
     # ── Report ──
     lines = []
