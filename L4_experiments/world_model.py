@@ -294,11 +294,9 @@ class HamJEPAWorldModel(nn.Module):
         Returns: [B, D] flat latent vector
         """
         if frames.dim() == 5:
-            # Frame stack → take last frame only (ResNet processes single images)
-            if frames.shape[1] > 1:
-                frames = frames[:, -1]  # take last frame
-            else:
-                frames = frames[:, 0]
+            # [B, T, H, W, C] → take last frame → [B, H, W, C]
+            frames = frames[:, -1] if frames.shape[1] > 1 else frames[:, 0]
+            frames = frames.permute(0, 3, 1, 2)  # [B, C, H, W]
         elif frames.dim() == 4 and frames.shape[-1] == 3:
             frames = frames.permute(3, 0, 1, 2)  # [H,W,C] → [C,H,W]
 
