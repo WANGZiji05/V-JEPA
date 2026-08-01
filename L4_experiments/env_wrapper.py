@@ -25,8 +25,8 @@ class CartPolePixelEnv:
         render_size: output frame size (default 224×224)
     """
 
-    def __init__(self, gravity=1.0, stack_frames=1, render_size=224):
-        self.env = suite.load('cartpole', 'swingup')
+    def __init__(self, gravity=1.0, stack_frames=1, render_size=224, task='balance'):
+        self.env = suite.load('cartpole', task if task in ('swingup', 'balance') else 'balance')
         self.stack_frames = stack_frames
         self.render_size = render_size
         self._set_gravity(gravity)
