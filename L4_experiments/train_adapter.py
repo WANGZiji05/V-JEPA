@@ -17,57 +17,57 @@ from world_model import (
 )
 
 
-def train_adapter(world_model, data, epochs=200, batch_size=4, lr=1e-3, device='cuda'):
+def train_adapter(world_model, data, epochs=200, batch_size=256, lr=1e-3, device='cuda'):
     """
     Train action adapter + reward predictor.
 
-    data: dict with keys 'obs', 'action', 'next_obs', 'reward'
-          obs: [N, T, H, W, C] tensor (float, normalized)
-
-    Losses:
-      - Dynamics loss: MSE(predicted_z_next, actual_z_next)
-      - Reward loss:   MSE(predicted_reward, actual_cos_angle)
+    Pre-encodes all frames ONCE (heavy ViT pass, ~2 min for 2000 frames),
+    then trains adapter on cached latents (fast, ~20s for 200 epochs).
     """
+    N = data['obs'].shape[0]
+
+    # ── Pre-encode all frames to latent (done once) ──
+    print(f"\nPre-encoding {N} frames (ViT pass, ~2 min)...")
+    z_all, z_next_all = [], []
+    encode_bs = 2  # small to avoid OOM
+    with torch.no_grad():
+        for i in range(0, N, encode_bs):
+            z_all.append(world_model.encode(data['obs'][i:i+encode_bs].to(device)).cpu())
+            z_next_all.append(world_model.encode(data['next_obs'][i:i+encode_bs].to(device)).cpu())
+            if (i // encode_bs + 1) % 200 == 0:
+                print(f"  {i+encode_bs}/{N}")
+    z_all = torch.cat(z_all, dim=0)
+    z_next_all = torch.cat(z_next_all, dim=0)
+    rewards_all = data['reward']
+    action_idx_all = torch.tensor(
+        [continuous_action_to_idx(a) for a in data['action']], dtype=torch.long
+    )
+    print(f"  Done. z: {z_all.shape}, z_next: {z_next_all.shape}")
+
+    # ── Train adapter on cached latents ──
     optimizer = torch.optim.AdamW(world_model.get_trainable_params(), lr=lr, weight_decay=1e-4)
     dynamics_criterion = nn.MSELoss()
     reward_criterion = nn.MSELoss()
 
-    N = data['obs'].shape[0]
-    n_batches = N // batch_size
-
-    print(f"\nTraining adapter on {N} frames, {epochs} epochs, batch_size={batch_size}")
+    print(f"\nTraining adapter: {epochs} epochs, batch_size={batch_size}")
     print(f"  Trainable params: {sum(p.numel() for p in world_model.get_trainable_params()):,}")
 
     for epoch in range(epochs):
         perm = torch.randperm(N)
         total_dyn_loss = 0.0
         total_rew_loss = 0.0
+        n_batches = 0
 
         for i in range(0, N, batch_size):
             idx = perm[i:i + batch_size]
-            obs_batch = data['obs'][idx].to(device)         # [B, T, H, W, C]
-            next_obs_batch = data['next_obs'][idx].to(device)
-            action_batch = data['action'][idx]               # [B, 1]
-            reward_batch = data['reward'][idx].to(device)    # [B]
+            z = z_all[idx].to(device)
+            z_next_actual = z_next_all[idx].to(device)
+            action_idx = action_idx_all[idx].to(device)
+            reward_batch = rewards_all[idx].to(device)
 
-            # Convert continuous action → discrete index
-            action_idx = torch.tensor(
-                [continuous_action_to_idx(a) for a in action_batch],
-                dtype=torch.long, device=device
-            )
+            z_next_pred = world_model.predict(z, action_idx)
+            rew_pred = world_model.get_reward(z).squeeze(-1)
 
-            # Encode current and next observations
-            z = world_model.encode(obs_batch)          # [B, D]
-            with torch.no_grad():
-                z_next_actual = world_model.encode(next_obs_batch)  # [B, D]
-
-            # Predict next latent
-            z_next_pred = world_model.predict(z, action_idx)  # [B, D]
-
-            # Predict reward from current latent
-            rew_pred = world_model.get_reward(z).squeeze(-1)  # [B]
-
-            # Losses
             dyn_loss = dynamics_criterion(z_next_pred, z_next_actual)
             rew_loss = reward_criterion(rew_pred, reward_batch.float())
             loss = dyn_loss + 0.5 * rew_loss
@@ -78,6 +78,7 @@ def train_adapter(world_model, data, epochs=200, batch_size=4, lr=1e-3, device='
 
             total_dyn_loss += dyn_loss.item()
             total_rew_loss += rew_loss.item()
+            n_batches += 1
 
         if (epoch + 1) % 50 == 0:
             print(f"  Epoch {epoch+1:3d}: dyn_loss={total_dyn_loss/n_batches:.4f}  "
