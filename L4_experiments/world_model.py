@@ -52,22 +52,23 @@ class VJEPAWorldModel(nn.Module):
         import src.models.predictor as vit_pred
 
         ckpt = torch.load(checkpoint_path, map_location='cpu')
-        ckpt_cfg = ckpt.get('config', ckpt.get('args', {}))
 
-        # Try to infer model params from checkpoint
-        model_cfg = ckpt_cfg.get('model', {})
-        model_name = model_cfg.get('model_name', 'vit_large')
-        embed_dim = ckpt.get('embed_dim', getattr(ckpt, 'embed_dim', 1024))
-
-        # Fallback: inspect checkpoint state dict
+        # Detect model variant from checkpoint (encoder or target_encoder)
         if 'encoder' in ckpt:
             enc_state = ckpt['encoder']
-            # Find embed_dim from position embedding
-            for k in enc_state:
-                if 'pos_embed' in k:
-                    embed_dim = enc_state[k].shape[-1]
-                    break
+        elif 'target_encoder' in ckpt:
+            enc_state = ckpt['target_encoder']
+        else:
+            enc_state = ckpt
 
+        embed_dim = 1024  # fallback
+        for k in enc_state:
+            if 'pos_embed' in k:
+                embed_dim = enc_state[k].shape[-1]
+                break
+
+        dim_to_name = {768: 'vit_base', 1024: 'vit_large', 1280: 'vit_huge'}
+        model_name = dim_to_name.get(embed_dim, 'vit_large')
         self.embed_dim = embed_dim
 
         # Create encoder (ViT)
