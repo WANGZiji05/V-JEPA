@@ -86,8 +86,13 @@ class VJEPAWorldModel(nn.Module):
         for p in self.encoder.parameters():
             p.requires_grad = False
 
-        # Create predictor
-        pred_dim = ckpt_cfg.get('model', {}).get('pred_embed_dim', 384)
+        # Create predictor (detect pred_dim from checkpoint)
+        pred_dim = 384  # fallback
+        if 'predictor' in ckpt:
+            for k in ckpt['predictor']:
+                if 'predictor_embed' in k and 'weight' in k:
+                    pred_dim = ckpt['predictor'][k].shape[0]
+                    break
         self.predictor = vit_pred.VisionTransformerPredictor(
             img_size=224, patch_size=16, num_frames=16, tubelet_size=2,
             embed_dim=embed_dim, predictor_embed_dim=pred_dim,
