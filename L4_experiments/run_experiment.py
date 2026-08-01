@@ -76,8 +76,9 @@ def run_episode(env, planner, world_model, max_steps=200, device='cuda'):
         total_reward += reward
 
         # Check if pole is upright
-        predicted_cos = world_model.get_reward(z.unsqueeze(0)).item()
-        if abs(predicted_cos) > SUCCESS_COS_THRESHOLD:
+        # Use ACTUAL pole angle from MuJoCo physics, not model prediction
+        pole_angle = env.env.physics.data.qpos[1]  # hinge joint angle (radians)
+        if abs(np.cos(pole_angle)) > SUCCESS_COS_THRESHOLD:
             upright_steps += 1
 
         if done:
@@ -158,8 +159,8 @@ def run_random_baseline(num_episodes=100, gravity=1.0, device='cuda'):
             action_idx, _ = planner.plan(None)
             action = idx_to_continuous_action(action_idx)
             obs, reward, done, _ = env.step(np.array([action]))
-            # Estimate uprightness from dm_control reward (close to 1 = upright)
-            if reward > 0.8:
+            pole_angle = env.env.physics.data.qpos[1]
+            if abs(np.cos(pole_angle)) > SUCCESS_COS_THRESHOLD:
                 upright_steps += 1
             if done:
                 break
