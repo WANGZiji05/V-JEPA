@@ -196,7 +196,7 @@ class VJEPAWorldModel(nn.Module):
         return self.reward_predictor(z)
 
     def get_trainable_params(self):
-        return list(self.action_offsets) + list(self.reward_predictor.parameters())
+        return [self.action_offsets] + list(self.reward_predictor.parameters())
 
 
 # ============================================================================
@@ -328,7 +328,7 @@ class HamJEPAWorldModel(nn.Module):
         return self.reward_predictor(z)
 
     def get_trainable_params(self):
-        return list(self.action_offsets) + list(self.reward_predictor.parameters())
+        return [self.action_offsets] + list(self.reward_predictor.parameters())
 
 
 # ============================================================================
