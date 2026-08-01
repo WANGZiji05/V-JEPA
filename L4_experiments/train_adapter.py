@@ -17,7 +17,7 @@ from world_model import (
 )
 
 
-def train_adapter(world_model, data, epochs=200, batch_size=128, lr=1e-3, device='cuda'):
+def train_adapter(world_model, data, epochs=200, batch_size=4, lr=1e-3, device='cuda'):
     """
     Train action adapter + reward predictor.
 
