@@ -209,19 +209,19 @@ def main():
 
     vjepa_model = VJEPAWorldModel(args.vjepa_ckpt, device=device).to(device)
     if args.vjepa_adapter:
-        print(f"Loading V-JEPA adapter from {args.vjepa_adapter}")
-        adapter = torch.load(args.vjepa_adapter, map_location=device)
-        vjepa_model.action_offsets.data = adapter['action_offsets'].to(device)
-        vjepa_model.reward_predictor.load_state_dict(adapter['reward_predictor'])
+        print(f"Loading V-JEPA dynamics from {args.vjepa_adapter}")
+        ckpt = torch.load(args.vjepa_adapter, map_location=device)
+        vjepa_model.dynamics.load_state_dict(ckpt['dynamics'])
+        vjepa_model.reward.load_state_dict(ckpt['reward'])
 
     hamjepa_model = HamJEPAWorldModel(
         args.hamjepa_cfg, args.hamjepa_ckpt, device=device
     ).to(device)
     if args.hamjepa_adapter:
-        print(f"Loading HamJEPA adapter from {args.hamjepa_adapter}")
-        adapter = torch.load(args.hamjepa_adapter, map_location=device)
-        hamjepa_model.action_offsets.data = adapter['action_offsets'].to(device)
-        hamjepa_model.reward_predictor.load_state_dict(adapter['reward_predictor'])
+        print(f"Loading HamJEPA dynamics from {args.hamjepa_adapter}")
+        ckpt = torch.load(args.hamjepa_adapter, map_location=device)
+        hamjepa_model.dynamics.load_state_dict(ckpt['dynamics'])
+        hamjepa_model.reward.load_state_dict(ckpt['reward'])
 
     # ── Resume support ──
     import json as _json
