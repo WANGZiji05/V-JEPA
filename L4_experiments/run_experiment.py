@@ -187,8 +187,8 @@ def main():
     # Experiment settings
     parser.add_argument('--episodes', type=int, default=100)
     parser.add_argument('--cem_horizon', type=int, default=5)
-    parser.add_argument('--cem_population', type=int, default=100)
-    parser.add_argument('--cem_iter', type=int, default=3)
+    parser.add_argument('--cem_population', type=int, default=300)
+    parser.add_argument('--cem_iter', type=int, default=5)
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--output', type=str, default='L4_results.txt')
 
