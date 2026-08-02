@@ -83,6 +83,8 @@ def main():
     parser.add_argument('--hamjepa_cfg', type=str, default=None)
     parser.add_argument('--hamjepa_ckpt', type=str, default=None)
     parser.add_argument('--output', type=str, default='dynamics.pt')
+    parser.add_argument('--data', type=str, default=None,
+                        help='Path to pre-collected .pt data file (skip random collection)')
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--stack_frames', type=int, default=16)
     args = parser.parse_args()
@@ -96,10 +98,12 @@ def main():
         world_model = HamJEPAWorldModel(args.hamjepa_cfg, args.hamjepa_ckpt, device=device)
     world_model = world_model.to(device)
 
-    # Collect data — keep raw dm_control rewards [0, 1] (1 = upright)
-    env = CartPolePixelEnv(gravity=1.0, stack_frames=args.stack_frames)
-    data = collect_random_data(env, num_episodes=10)
-    # Reward stays in [0, 1], no normalization needed
+    if args.data:
+        print(f"Loading pre-collected data from {args.data}")
+        data = torch.load(args.data, map_location='cpu')
+    else:
+        env = CartPolePixelEnv(gravity=1.0, stack_frames=args.stack_frames)
+        data = collect_random_data(env, num_episodes=10)
 
     train_dynamics(world_model, data, device=device)
 
