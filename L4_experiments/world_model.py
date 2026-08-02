@@ -50,13 +50,15 @@ class DynamicsMLP(nn.Module):
 # ============================================================================
 
 class RewardPredictor(nn.Module):
-    """Small MLP: z → cos(pole_angle) ∈ [-1, 1]."""
+    """Deeper MLP: z → cos(pole_angle) ∈ [-1, 1]."""
 
-    def __init__(self, feature_dim, hidden_dim=256):
+    def __init__(self, feature_dim, hidden_dim=512):
         super().__init__()
         self.net = nn.Sequential(
             nn.LayerNorm(feature_dim),
             nn.Linear(feature_dim, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1),
             nn.Tanh(),
