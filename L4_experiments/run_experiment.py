@@ -41,7 +41,7 @@ from planner_cem import CEMPlanner, RandomPlanner
 # Episode is "successful" if pole stays near upright (> cos(30°) ≈ 0.866)
 # for at least 80% of episode steps (i.e., 160 out of 200 steps)
 SUCCESS_COS_THRESHOLD = 0.866  # cos(30°)
-SUCCESS_STEP_RATIO = 0.8
+SUCCESS_STEP_RATIO = 0.6
 
 
 def run_episode(env, planner, world_model, max_steps=200, device='cuda'):

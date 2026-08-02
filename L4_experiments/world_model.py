@@ -26,7 +26,7 @@ if _HAMJEPA_ROOT not in sys.path: sys.path.insert(0, _HAMJEPA_ROOT)
 class DynamicsMLP(nn.Module):
     """Small MLP: (z, action_idx) → z_next."""
 
-    def __init__(self, feature_dim, num_actions=5, hidden_dim=256):
+    def __init__(self, feature_dim, num_actions=21, hidden_dim=256):
         super().__init__()
         self.action_embed = nn.Embedding(num_actions, feature_dim)
         self.net = nn.Sequential(
@@ -102,7 +102,7 @@ class VJEPAWorldModel(nn.Module):
 
         self.dynamics = DynamicsMLP(embed_dim)
         self.reward = RewardPredictor(embed_dim)
-        self.num_discrete_actions = 5
+        self.num_discrete_actions = 21
 
     def encode(self, frames):
         """:param frames: [B, T, H, W, C] or [B, C, T, H, W]"""
@@ -160,7 +160,7 @@ class HamJEPAWorldModel(nn.Module):
 
         self.dynamics = DynamicsMLP(embed_dim)
         self.reward = RewardPredictor(embed_dim)
-        self.num_discrete_actions = 5
+        self.num_discrete_actions = 21
 
     def encode(self, frames):
         """:param frames: [B, T, H, W, C] — take last frame"""
@@ -188,7 +188,7 @@ class HamJEPAWorldModel(nn.Module):
 # Shared utilities
 # ============================================================================
 
-CONTINUOUS_ACTIONS = torch.tensor([-1.0, -0.5, 0.0, 0.5, 1.0], dtype=torch.float32)
+CONTINUOUS_ACTIONS = torch.linspace(-1.0, 1.0, 21, dtype=torch.float32)
 
 
 def continuous_action_to_idx(action):

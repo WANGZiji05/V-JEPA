@@ -46,7 +46,7 @@ class CEMPlanner:
         self.K = population
         self.elite_frac = elite_frac
         self.num_iter = num_iter
-        self.action_dim = world_model.num_discrete_actions
+self.action_dim = world_model.num_discrete_actions
         self.device = device
 
         self.n_elite = max(1, int(population * elite_frac))
