@@ -148,7 +148,7 @@ def run_experiment_group(world_model, gravity, num_episodes, label, device='cuda
 def run_random_baseline(num_episodes=100, gravity=1.0, device='cuda'):
     """Random action baseline to verify CEM is actually planning."""
     env = CartPolePixelEnv(gravity=gravity, stack_frames=1)
-    planner = RandomPlanner()
+    planner = RandomPlanner(action_dim=21)
 
     successes = 0
     for ep in range(num_episodes):

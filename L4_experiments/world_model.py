@@ -61,7 +61,7 @@ class RewardPredictor(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1),
-            nn.Tanh(),
+            nn.Sigmoid(),
         )
 
     def forward(self, z):

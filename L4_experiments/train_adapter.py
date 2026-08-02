@@ -96,12 +96,10 @@ def main():
         world_model = HamJEPAWorldModel(args.hamjepa_cfg, args.hamjepa_ckpt, device=device)
     world_model = world_model.to(device)
 
-    # Collect data
+    # Collect data — keep raw dm_control rewards [0, 1] (1 = upright)
     env = CartPolePixelEnv(gravity=1.0, stack_frames=args.stack_frames)
     data = collect_random_data(env, num_episodes=10)
-    rewards = data['reward']
-    if rewards.std() > 0:
-        data['reward'] = 2.0 * (rewards - rewards.min()) / (rewards.max() - rewards.min() + 1e-8) - 1.0
+    # Reward stays in [0, 1], no normalization needed
 
     train_dynamics(world_model, data, device=device)
 
